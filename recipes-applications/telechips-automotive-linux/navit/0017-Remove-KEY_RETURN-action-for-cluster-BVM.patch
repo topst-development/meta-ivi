@@ -1,0 +1,25 @@
+From b32e5a608e543251e1c0568dc45fb9afafe47815 Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Mon, 21 Sep 2020 02:43:57 +0000
+Subject: [PATCH] [ref] Remove KEY_RETURN action for cluster BVM
+
+ITS : QSD805XL1-68
+---
+ navit/gui/internal/gui_internal.c | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/navit/gui/internal/gui_internal.c b/navit/gui/internal/gui_internal.c
+index 1ca9e2f93..4bcdb5a75 100644
+--- a/navit/gui/internal/gui_internal.c
++++ b/navit/gui/internal/gui_internal.c
+@@ -2804,7 +2804,6 @@ static void gui_internal_keypress(void *data, char *key) {
+         case NAVIT_KEY_ZOOM_OUT:
+             navit_zoom_out(this->nav, 2, NULL);
+             break;
+-        case NAVIT_KEY_RETURN:
+         case NAVIT_KEY_MENU:
+             gui_internal_set_click_coord(this, NULL);
+             gui_internal_cmd_menu(this, 0, NULL);
+-- 
+2.24.1
+

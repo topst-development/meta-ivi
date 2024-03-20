@@ -1,0 +1,36 @@
+From 9a4d8326c1c839558669b54e37dfe6345942f491 Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Tue, 27 Aug 2019 17:41:18 +0900
+Subject: [PATCH] change center of maps
+
+---
+ navit/navit_shipped.xml | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/navit/navit_shipped.xml b/navit/navit_shipped.xml
+index db9915d..fc75d4d 100644
+--- a/navit/navit_shipped.xml
++++ b/navit/navit_shipped.xml
+@@ -34,7 +34,8 @@
+ 	Center coordinates format: "Long Lat" in decimal degrees (WGS 84).
+ 	For other formats see http://wiki.navit-project.org/index.php/Coordinate_format.
+ 	-->
+-	<navit center="11.5666 48.1333" zoom="64" tracking="1" orientation="-1" recent_dest="250" drag_bitmap="0" default_layout="Car">
++	<!-- <navit center="11.5666 48.1333" zoom="64" tracking="1" orientation="-1" recent_dest="250" drag_bitmap="0" default_layout="Car"> -->
++	<navit center="127.102981 37.515233" zoom="64" tracking="1" orientation="-1" recent_dest="250" drag_bitmap="0" default_layout="Car">
+ 		<!-- Use one of gtk_drawing_area, qt_qpainter or sdl. On windows systems, use win32 -->
+ 		<graphics type="qt5"/>
+ 		<!--
+@@ -417,7 +418,8 @@ Waypoint</text></img>
+ 
+ 		<!-- Mapset template for openstreetmaps -->
+ 		<mapset enabled="yes">
+-			<map type="binfile" enabled="yes" data="$NAVIT_SHAREDIR/maps/osm_bbox_11.3,47.9,11.7,48.2.bin"/>
++			<!-- <map type="binfile" enabled="yes" data="$NAVIT_SHAREDIR/maps/osm_bbox_11.3,47.9,11.7,48.2.bin"/> -->
++			<map type="binfile" enabled="yes" data="$NAVIT_SHAREDIR/maps/osm_bbox_126.8,37.5,127.1,37.6.bin"/>
+ 		</mapset>
+ 
+ 		<!-- Mapset template for garmin maps -->
+-- 
+1.9.3
+

@@ -1,0 +1,27 @@
+From 5e95f10665a5dde0deb3f77280fcc8263b587fef Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Thu, 29 Aug 2019 15:18:00 +0900
+Subject: [PATCH] Hide navit when another application view
+
+---
+ navit/support/mode_manager/mode_manager.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/navit/support/mode_manager/mode_manager.c b/navit/support/mode_manager/mode_manager.c
+index 7b65fa2..2867923 100644
+--- a/navit/support/mode_manager/mode_manager.c
++++ b/navit/support/mode_manager/mode_manager.c
+@@ -303,6 +303,10 @@ static void mode_manager_change_mode(const char *mode, int app)
+ 			}
+ 			mode_manager_send_dbus_change_mode(MODE_MANAGER_NAVI_ALARM, g_appID);
+ 		}
++		else
++		{
++			graphics_window_show(_graphics, graphic_window_mode_hide);
++		}
+ 	}
+ 	else if (strncmp(mode, MODE_MANAGER_HOME, strlen(MODE_MANAGER_HOME)) == 0)
+ 	{
+-- 
+1.9.3
+

@@ -1,0 +1,87 @@
+From 70e98766dc1115cab26565126c16f942e50db9d9 Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Wed, 14 Aug 2019 05:01:48 +0000
+Subject: [PATCH] Set pulseaudio property   > media role navi   > secondary
+ sink
+
+---
+ navit/main.c                                  |  1 +
+ navit/speech/qt5_espeak/Qt5EspeakAudioOut.cpp | 42 ++++++++++++++++++++++-----
+ 2 files changed, 36 insertions(+), 7 deletions(-)
+
+diff --git a/navit/main.c b/navit/main.c
+index 986947f0d..225a6943a 100644
+--- a/navit/main.c
++++ b/navit/main.c
+@@ -346,6 +346,7 @@ void main_init(const char *program) {
+ #endif
+ #ifndef HAVE_API_ANDROID
+     setenv("LC_NUMERIC","C",1);
++    setenv("PULSE_PROP_media.role", "navi", 1);
+     setlocale(LC_ALL,"");
+     setlocale(LC_NUMERIC,"C");
+ #endif
+diff --git a/navit/speech/qt5_espeak/Qt5EspeakAudioOut.cpp b/navit/speech/qt5_espeak/Qt5EspeakAudioOut.cpp
+index f8f8339eb..a5df012ef 100644
+--- a/navit/speech/qt5_espeak/Qt5EspeakAudioOut.cpp
++++ b/navit/speech/qt5_espeak/Qt5EspeakAudioOut.cpp
+@@ -29,6 +29,9 @@ Qt5EspeakAudioOut::Qt5EspeakAudioOut(int samplerate, const char* category) {
+     buffer->open(QIODevice::ReadWrite);
+ 
+     QAudioFormat format;
++	QAudioDeviceInfo deviceInfo;
++	bool found = false;
++	int cnt;
+     // Set up the format, eg.
+     format.setSampleRate(samplerate);
+     format.setChannelCount(1);
+@@ -37,14 +40,39 @@ Qt5EspeakAudioOut::Qt5EspeakAudioOut(int samplerate, const char* category) {
+     format.setByteOrder(QAudioFormat::LittleEndian);
+     format.setSampleType(QAudioFormat::SignedInt);
+ 
+-    QAudioDeviceInfo info(QAudioDeviceInfo::defaultOutputDevice());
+-    if (!info.isFormatSupported(format)) {
+-        dbg(lvl_error,
+-            "Raw audio format not supported by backend, cannot play audio.");
+-        return;
+-    }
++	QList<QAudioDeviceInfo> devicesList = QAudioDeviceInfo::availableDevices(QAudio::AudioOutput);
++	cnt = devicesList.count();
++	for (int i = 0; i < cnt && !found; i++)
++	{
++		deviceInfo = devicesList[i];
++		if (deviceInfo.deviceName() == "Secondary")
++		{
++		    if (!deviceInfo.isFormatSupported(format))
++			{
++		        dbg(lvl_error,
++		            "Raw audio format not supported by backend, cannot play audio.");
++		        return;
++		    }
++			found = true;
++		}
++	}
++
++	if (found)
++	{
++    	audio = new QAudioOutput(deviceInfo, format, this);
++	}
++	else
++	{
++		QAudioDeviceInfo info(QAudioDeviceInfo::defaultOutputDevice());
++		if (!info.isFormatSupported(format))
++		{
++		    dbg(lvl_error,
++		        "Raw audio format not supported by backend, cannot play audio.");
++		    return;
++		}
++    	audio = new QAudioOutput(format, this);
++	}
+ 
+-    audio = new QAudioOutput(format, this);
+     /* try to set a rather huge buffer size in order to avoid chopping due to
+     * event loop
+     * not getting idle. Drawing may take just too long time. This hopefully
+-- 
+2.13.3
+

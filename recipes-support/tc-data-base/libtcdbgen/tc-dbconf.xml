@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="iso-8859-1"?>
+<TCDBGen>
+	<DBConf MaxFolder="2000" FileUpdateCount="1000" MetaUpdateCount="1000"/>
+	<AudioFileTable>
+		<Config MaxFile="6000"/>
+		<SupportList>
+			<Ext Name=".mp3"/>
+			<Ext Name=".mp2"/>
+			<Ext Name=".wav"/>
+			<Ext Name=".ogg"/>
+			<Ext Name=".aac"/>
+			<Ext Name=".ape"/>
+			<Ext Name=".flac"/>
+			<Ext Name=".mka"/>
+			<Ext Name=".m4a"/>
+			<Ext Name=".amr"/>
+		</SupportList>
+	</AudioFileTable>
+	<VideoFileTable>
+		<Config MaxFile="2000"/>
+		<SupportList>
+			<Ext Name=".avi"/>
+			<Ext Name=".mkv"/>
+			<Ext Name=".webm"/>
+			<Ext Name=".mov"/>
+			<Ext Name=".3gp"/>
+			<Ext Name=".mp4"/>
+			<Ext Name=".3g2"/>
+			<Ext Name=".k3g"/>
+			<Ext Name=".skm"/>
+			<Ext Name=".mpg"/>
+			<Ext Name=".mpeg"/>
+			<Ext Name=".vob"/>
+			<Ext Name=".dat"/>
+			<Ext Name=".ts"/>
+			<Ext Name=".tp"/>
+			<Ext Name=".trp"/>
+			<Ext Name=".m2ts"/>
+			<Ext Name=".flv"/>
+			<Ext Name=".ogm"/>
+		</SupportList>
+	</VideoFileTable>
+	<BlackListTable>
+		<BlackList>
+			<Dir Name="$RECYCLE.BIN"/>
+		</BlackList>
+	</BlackListTable>
+</TCDBGen>

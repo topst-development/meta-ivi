@@ -1,0 +1,17 @@
+[Unit]
+Description=Telechips Mode Manager Daemon
+Requires=dbus.socket
+After=dbus.socket
+Before=tc-launcher.service
+
+[Service]
+Type=forking
+BusName=telechips.mode.manager
+PIDFile=/var/run/TCModeManager.pid
+ExecStart=/usr/bin/TCModeManager
+RestartSec=1sec
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+

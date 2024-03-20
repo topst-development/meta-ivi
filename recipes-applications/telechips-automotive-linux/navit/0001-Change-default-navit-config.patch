@@ -1,0 +1,66 @@
+From 6577e3014ecab12a96ba3ea8bb4ad0f1d385ec18 Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Tue, 13 Aug 2019 14:13:38 +0000
+Subject: [PATCH] Change default navit config   > graphics : qt5   > maps :
+ osm_bbox binfile   > default zoom : 64   > speech : qt5_espeak
+
+---
+ navit/navit_shipped.xml | 15 ++++++++-------
+ 1 file changed, 8 insertions(+), 7 deletions(-)
+
+diff --git a/navit/navit_shipped.xml b/navit/navit_shipped.xml
+index 409b149e8..b245a1b00 100644
+--- a/navit/navit_shipped.xml
++++ b/navit/navit_shipped.xml
+@@ -34,9 +34,9 @@
+ 	Center coordinates format: "Long Lat" in decimal degrees (WGS 84).
+ 	For other formats see http://wiki.navit-project.org/index.php/Coordinate_format.
+ 	-->
+-	<navit center="11.5666 48.1333" zoom="256" tracking="1" orientation="-1" recent_dest="250" drag_bitmap="0" default_layout="Car">
++	<navit center="11.5666 48.1333" zoom="64" tracking="1" orientation="-1" recent_dest="250" drag_bitmap="0" default_layout="Car">
+ 		<!-- Use one of gtk_drawing_area, qt_qpainter or sdl. On windows systems, use win32 -->
+-		<graphics type="gtk_drawing_area"/>
++		<graphics type="qt5"/>
+ 		<!--
+ 		The following line let you select which graphical user interface you'd like to use.
+ 		Options include internal (optimized for touch screen devices), gtk (useful for desktop computers).
+@@ -201,7 +201,7 @@ Waypoint</text></img>
+ 		<!-- For SDL, you should add follow="1" to have the view centered on your position -->
+ 		<!-- <vehicle name="Meins" enabled="yes" source="gpsd://localhost" color="#0000ff" follow="1"/> -->
+ 
+-		<vehicle name="Demo" profilename="car" enabled="no" source="demo://"/>
++		<vehicle name="Demo" profilename="car" enabled="no" active="1" source="file:///home/root/munich.nmea"/>
+ 
+ 		<!-- For the cumulative displacement filter to be enabled, set cdf_histsize="x" here, with x being an integer somewhere around 4 -->
+ 		<tracking cdf_histsize="0"/>
+@@ -386,8 +386,9 @@ Waypoint</text></img>
+ 		Navit provides speech output in text format.
+ 		If you have a speech synthesizer like festival lite installed, you can get turn by turn directions out of navit. Please set the "cps"-value to how many characters your tts engine approximately speaks per second.
+ 		The default is text output to the shell
+-		-->
+ 		<speech type="cmdline" data="echo 'Fix the speech tag in navit.xml to let navit say:' '%s'" cps="15"/>
++		-->
++		<speech type="qt5_espeak" cps="15"/>
+ 		<!--
+ 		Instead of using a speech synthesizer, navit can also play pre-recorded samples for each word.
+ 		See http://wiki.navit-project.org/index.php/Configuration for details.
+@@ -410,13 +411,13 @@ Waypoint</text></img>
+ 		</mapset>
+ 
+ 		<!-- If you dont want to use the sample map, either set enabled="no" in the next line or remove the xml file from the maps directory -->
+-		<mapset enabled="yes">
++		<mapset enabled="no">
+ 			<xi:include href="$NAVIT_SHAREDIR/maps/*.xml"/>
+ 		</mapset>
+ 
+ 		<!-- Mapset template for openstreetmaps -->
+-		<mapset enabled="no">
+-			<map type="binfile" enabled="yes" data="/media/mmc2/MapsNavit/osm_europe.bin"/>
++		<mapset enabled="yes">
++			<map type="binfile" enabled="yes" data="$NAVIT_SHAREDIR/maps/osm_bbox_11.3,47.9,11.7,48.2.bin"/>
+ 		</mapset>
+ 
+ 		<!-- Mapset template for garmin maps -->
+-- 
+2.13.3
+

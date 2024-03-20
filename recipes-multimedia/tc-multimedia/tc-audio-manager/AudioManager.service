@@ -1,0 +1,15 @@
+[Unit]
+Description=audio manager daemon
+Requires=dbus.service
+After=dbus.service
+
+[Service]
+Type=forking
+BusName=telechips.audiomanager.process
+PIDFile=/var/run/tc-audio-manager.pid
+ExecStart=/usr/bin/AudioManager
+RestartSec=2min
+Restart=always
+
+[Install]
+WantedBy=graphical.target

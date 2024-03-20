@@ -1,0 +1,24 @@
+From 78c0f4a2bd9914c5873569f936ce19b7f59194f8 Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Wed, 11 Sep 2019 16:14:07 +0900
+Subject: [PATCH] Release audio resource when speech end
+
+---
+ navit/speech/qt5_espeak/Qt5EspeakAudioOut.cpp | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/navit/speech/qt5_espeak/Qt5EspeakAudioOut.cpp b/navit/speech/qt5_espeak/Qt5EspeakAudioOut.cpp
+index f1704a5..773d36c 100644
+--- a/navit/speech/qt5_espeak/Qt5EspeakAudioOut.cpp
++++ b/navit/speech/qt5_espeak/Qt5EspeakAudioOut.cpp
+@@ -114,6 +114,7 @@ void Qt5EspeakAudioOut::handleStateChanged(QAudio::State newState) {
+ //        break;
+     case QAudio::IdleState:
+         /*remove all data that was already read*/
++		audio->stop();
+         data->remove(0, buffer->pos());
+         buffer->seek(0);
+         dbg(lvl_debug, "Size %d", data->size());
+-- 
+1.9.3
+

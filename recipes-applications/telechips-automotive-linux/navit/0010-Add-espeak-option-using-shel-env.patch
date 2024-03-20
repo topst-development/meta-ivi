@@ -1,0 +1,82 @@
+From b93921fecf060633cde8cdaa56e4057b6fd4ce09 Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Thu, 19 Sep 2019 05:54:57 +0000
+Subject: [PATCH] Add espeak option using shel env 	> PEAK_RATE 	>
+ ESPEAK_VOLUME 	> ESPEAK_CAPITALS 	> ESPEAK_PUNCTUATION 	> ESPEAK_PITCH
+
+---
+ navit/speech/qt5_espeak/qt5_espeak.cpp | 51 ++++++++++++++++++++++++++++++++++
+ 1 file changed, 51 insertions(+)
+
+diff --git a/navit/speech/qt5_espeak/qt5_espeak.cpp b/navit/speech/qt5_espeak/qt5_espeak.cpp
+index a0372ff39..0564ead22 100755
+--- a/navit/speech/qt5_espeak/qt5_espeak.cpp
++++ b/navit/speech/qt5_espeak/qt5_espeak.cpp
+@@ -74,6 +74,8 @@ int qt5_espeak_SynthCallback(short* wav, int numsamples, espeak_EVENT* events) {
+ static bool qt5_espeak_init_espeak(struct speech_priv* sr, struct attr** attrs) {
+     struct attr* path;
+ 
++	char *espeak_env;
++	int espeak_val;
+     /* prepare espeak library path home */
+     path = attr_search(attrs, NULL, attr_path);
+     if (path) {
+@@ -103,6 +105,55 @@ static bool qt5_espeak_init_espeak(struct speech_priv* sr, struct attr** attrs)
+     }
+     dbg(lvl_error, "Sample rate is %d", sr->sample_rate);
+ 
++	espeak_env = getenv("ESPEAK_RATE");
++	if (espeak_env != NULL)
++	{
++		espeak_val = atoi(espeak_env);
++		espeak_SetParameter(espeakRATE,espeak_val,0);
++	}
++
++	espeak_env = getenv("ESPEAK_VOLUME");
++	if (espeak_env != NULL)
++	{
++		espeak_val = atoi(espeak_env);
++		espeak_SetParameter(espeakVOLUME,espeak_val,0);
++	}
++
++	espeak_env = getenv("ESPEAK_CAPITALS");
++	if (espeak_env != NULL)
++	{
++		espeak_val = atoi(espeak_env);
++		espeak_SetParameter(espeakCAPITALS,espeak_val,0);
++	}
++
++	espeak_env = getenv("ESPEAK_PUNCTUATION");
++	if (espeak_env != NULL)
++	{
++		espeak_val = atoi(espeak_env);
++		espeak_SetParameter(espeakPUNCTUATION,espeak_val,0);
++	}
++
++	espeak_env = getenv("ESPEAK_PITCH");
++	if (espeak_env != NULL)
++	{
++		espeak_val = atoi(espeak_env);
++		espeak_SetParameter(espeakPITCH,espeak_val,0);
++	}
++
++	espeak_env = getenv("ESPEAK_RANGE");
++	if (espeak_env != NULL)
++	{
++		espeak_val = atoi(espeak_env);
++		espeak_SetParameter(espeakRANGE,espeak_val,0);
++	}
++
++	espeak_env = getenv("ESPEAK_WORDGAP");
++	if (espeak_env != NULL)
++	{
++		espeak_val = atoi(espeak_env);
++		espeak_SetParameter(espeakWORDGAP,espeak_val,0);
++	}
++
+     espeak_SetSynthCallback(qt5_espeak_SynthCallback);
+     return TRUE;
+ }
+-- 
+2.13.3
+

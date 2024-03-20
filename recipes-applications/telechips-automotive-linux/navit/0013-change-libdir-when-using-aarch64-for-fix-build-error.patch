@@ -1,0 +1,25 @@
+From b793ff603ed65a8d3a72cb5d3bce102b28f46133 Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Fri, 8 Nov 2019 05:49:55 +0000
+Subject: [PATCH] change libdir when using aarch64 for fix build error
+
+---
+ CMakeLists.txt | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index e8d043196..a2ba92c01 100755
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -52,7 +52,7 @@ IF(UNIX AND NOT ANDROID AND NOT APPLE)
+ 			SET(LIB_DIR lib/${PACKAGE} CACHE PATH "Navit 32bit bin path")
+ 			MESSAGE(STATUS "   LIB_DIR (highest subdirectory if LIBDIR) is set to '${LIB_DIR}'")
+ 		ELSE (CMAKE_SIZEOF_VOID_P EQUAL 4)
+-			SET(LIB_DIR lib64/${PACKAGE} CACHE PATH "Navit 64bit bin path")
++			SET(LIB_DIR lib/${PACKAGE} CACHE PATH "Navit 64bit bin path")
+ 			MESSAGE(STATUS "   LIB_DIR (highest subdirectory if LIBDIR) is set to '${LIB_DIR}'")
+ 		ENDIF (CMAKE_SIZEOF_VOID_P EQUAL 4)
+ 	ELSE (NOT LIBDIR)
+-- 
+2.13.3
+

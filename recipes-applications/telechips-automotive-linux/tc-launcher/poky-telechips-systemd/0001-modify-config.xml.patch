@@ -1,0 +1,25 @@
+From fa98a599958187878e9b6701544791ac5ab09e4b Mon Sep 17 00:00:00 2001
+From: jbhyun <jbhyun@huconn.com>
+Date: Wed, 13 Jul 2022 20:30:10 +0900
+Subject: [PATCH] modify config.xml
+
+---
+ config.xml | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/config.xml b/config.xml
+index 38dd54f..3651951 100644
+--- a/config.xml
++++ b/config.xml
+@@ -3,7 +3,7 @@
+   <options count_per_line="7" />
+   <applications>
+     <app id="1" path="/usr/bin/TMPlayerGUI" name="Media Player" image_path="/usr/share/tcc_launcher/app_images/media_player" image_name="media_player" args=""/>
+-	<app id="10" path="/usr/bin/navit" name="Navigation" image_path="/usr/share/tcc_launcher/app_images/navit" image_name="navit" args="" language="en_US"/>
++<!-- <app id="10" path="/usr/bin/navit" name="Navigation" image_path="/usr/share/tcc_launcher/app_images/navit" image_name="navit" args="" language="en_US"/> -->
+ <!-- <app id="2" path="/usr/bin/iPodPlayer" name="iPod Player" image_path="/usr/share/tcc_launcher/app_images/ipod_player" image_name="ipod_player" args=""/> -->
+ <!-- <app id="3" path="/usr/bin/CarPlayGui" name="CarPlay" image_path="/usr/share/tcc_launcher/app_images/carplay" image_name="carplay" args=""/> -->
+ <!-- <app id="6" path="/usr/bin/PhoneGUI" name="Phone" image_path="/usr/share/tcc_launcher/app_images/phone" image_name="phone" args=""/> -->
+-- 
+2.17.1
+

@@ -1,0 +1,1288 @@
+From ec7d28f883031c9682d55a2fd08a53ea4b19708b Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Tue, 27 Aug 2019 14:19:23 +0900
+Subject: [PATCH] add mode manager
+
+---
+ CMakeLists.txt                               |  13 +
+ navit/graphics.c                             |   9 +
+ navit/graphics.h                             |   8 +
+ navit/graphics/qt5/graphics_qt5.cpp          | 109 ++++++-
+ navit/gui/internal/gui_internal_command.c    |   2 +
+ navit/navit_shipped.xml                      |   2 +-
+ navit/start_real.c                           |  11 +-
+ navit/support/mode_manager/CMakeLists.txt    |   4 +
+ navit/support/mode_manager/DBusMsgDef.h      | 272 ++++++++++++++++
+ navit/support/mode_manager/dbus_msg_define.h |  70 ++++
+ navit/support/mode_manager/dbus_msg_names.c  |  51 +++
+ navit/support/mode_manager/mode_manager.c    | 461 +++++++++++++++++++++++++++
+ navit/support/mode_manager/mode_manager.h    |  22 ++
+ 13 files changed, 1025 insertions(+), 9 deletions(-)
+ create mode 100644 navit/support/mode_manager/CMakeLists.txt
+ create mode 100644 navit/support/mode_manager/DBusMsgDef.h
+ create mode 100644 navit/support/mode_manager/dbus_msg_define.h
+ create mode 100644 navit/support/mode_manager/dbus_msg_names.c
+ create mode 100644 navit/support/mode_manager/mode_manager.c
+ create mode 100644 navit/support/mode_manager/mode_manager.h
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4890afa..e8d0431 100755
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -89,6 +89,7 @@ add_plugin(support/zlib "native zlib found" FALSE)
+ add_plugin(support/libpng "native libpng found" FALSE)
+ add_plugin(support/wordexp "native wordexp found" FALSE)
+ add_plugin(support/gettext_intl "native libintl found" FALSE)
++add_plugin(support/mode_manager "telechips utils found" TRUE)
+ add_module(font/freetype "freetype not found" FALSE)
+ add_module(graphics/android "FreeType library not found" FALSE)
+ add_module(graphics/gd "FreeType library not found" FALSE)
+@@ -192,6 +193,18 @@ if(PKG_CONFIG_FOUND)
+ 	if(IMLIB2_FOUND)
+ 		set(HAVE_IMLIB2 1)
+ 	endif(IMLIB2_FOUND)
++
++	pkg_check_modules (TCUTILS TcUtils)
++	if (TCUTILS_FOUND)
++		set(HAVE_TCUTILS 1)
++		include_directories(${TCUTILS_INCLUDE_DIRS})
++		list(APPEND NAVIT_LIBS ${TCUTILS_LIBRARIES} ${DBUS_LIBRARIES})
++		set_with_reason(support/mode_manager "TcUtils found" TRUE
++				${TCUTILS_LIBRARIES}
++				${DBUS_LIBRARIES})
++	else(TCUTILS_FOUND)
++		set_with_reason("TcUtils not found" FALSE)
++	endif(TCUTILS_FOUND)
+ endif(PKG_CONFIG_FOUND)
+ 
+ #find_package(Iconv)
+diff --git a/navit/graphics.c b/navit/graphics.c
+index 1bb7dbd..78ed1c4 100644
+--- a/navit/graphics.c
++++ b/navit/graphics.c
+@@ -51,6 +51,7 @@
+ #include "callback.h"
+ #include "file.h"
+ #include "event.h"
++#include "support/mode_manager/mode_manager.h"
+ 
+ 
+ //##############################################################################################################
+@@ -281,6 +282,8 @@ struct graphics * graphics_new(struct attr *parent, struct attr **attrs) {
+         graphics_set_attr_do(this_,*attrs);
+         attrs++;
+     }
++
++	mode_manager_set_grapchis(this_);
+     return this_;
+ }
+ 
+@@ -1802,6 +1805,12 @@ void graphics_draw_polyline_clipped(struct graphics *gra, struct graphics_gc *gc
+     }
+ }
+ 
++void graphics_window_show(struct graphics *this_, int show)
++{
++    if (this_->meth.window_show)
++		this_->meth.window_show(this_->priv, show);
++}
++
+ static int is_inside(struct point *p, struct point_rect *r, int edge) {
+     switch(edge) {
+     case 0:
+diff --git a/navit/graphics.h b/navit/graphics.h
+index befeb8e..bb17187 100644
+--- a/navit/graphics.h
++++ b/navit/graphics.h
+@@ -57,6 +57,12 @@ enum graphics_image_type {
+ 	graphics_image_type_unknown=0,
+ };
+ 
++enum graphic_window_mode {
++	graphic_window_mode_hide,
++	graphic_window_mode_normal,
++	graphic_window_mode_full_screen
++};
++
+ struct graphics_image_buffer {
+ 	char magic[8]; /* buffer:\0 */
+ 	enum graphics_image_type type;
+@@ -148,6 +154,7 @@ struct graphics_methods {
+ 	void (*get_text_bbox)(struct graphics_priv *gr, struct graphics_font_priv *font, char *text, int dx, int dy, struct point *ret, int estimate);
+ 	void (*overlay_disable)(struct graphics_priv *gr, int disable);
+ 	void (*overlay_resize)(struct graphics_priv *gr, struct point *p, int w, int h, int wraparound);
++	void (*window_show)(struct graphics_priv *gr, int show);
+ 	int (*set_attr)(struct graphics_priv *gr, struct attr *attr);
+ 	int (*show_native_keyboard)(struct graphics_keyboard *kbd);
+ 	void (*hide_native_keyboard)(struct graphics_keyboard *kbd);
+@@ -284,6 +291,7 @@ int graphics_show_native_keyboard (struct graphics *this_, struct graphics_keybo
+ int graphics_hide_native_keyboard (struct graphics *this_, struct graphics_keyboard *kbd);
+ void graphics_draw_polygon_clipped(struct graphics *gra, struct graphics_gc *gc, struct point *pin, int count_in);
+ void graphics_draw_polyline_clipped(struct graphics *gra, struct graphics_gc *gc, struct point *pa, int count, int *width, int poly);
++void graphics_window_show(struct graphics *this_, int show);
+ 
+ /* end of prototypes */
+ #ifdef __cplusplus
+diff --git a/navit/graphics/qt5/graphics_qt5.cpp b/navit/graphics/qt5/graphics_qt5.cpp
+index e7b31c6..79b6871 100644
+--- a/navit/graphics/qt5/graphics_qt5.cpp
++++ b/navit/graphics/qt5/graphics_qt5.cpp
+@@ -62,6 +62,17 @@ extern "C" {
+ #include <windows.h>
+ #endif
+ 
++#define DEFAULT_SCREEN_SIZE_WIDTH	350
++#define DEFAULT_SCREEN_SIZE_HEIGHT	600
++#define DEFAULT_DESKTOP_SIZE_WIDTH	1024
++#define DEFAULT_DESKTOP_SIZE_HEIGHT	600
++
++static int g_screenWidth = DEFAULT_SCREEN_SIZE_WIDTH;
++static int g_screenHeight = DEFAULT_SCREEN_SIZE_HEIGHT;
++static int g_desktopWidth = DEFAULT_SCREEN_SIZE_WIDTH;
++static int g_desktopHeight = DEFAULT_SCREEN_SIZE_HEIGHT;
++
++
+ #if USE_QML
+ GraphicsPriv::GraphicsPriv(struct graphics_priv* gp) {
+     this->gp = gp;
+@@ -809,6 +820,76 @@ static void overlay_resize(struct graphics_priv* gr, struct point* p, int w, int
+ #endif
+ }
+ 
++static void window_show(struct graphics_priv* gr, int show) {
++#if USE_QWIDGET
++    /* call repaint on widget */
++    if (gr->widget != NULL)
++	{
++		switch (show)
++		{
++			case graphic_window_mode_hide:
++				gr->widget->hide();
++				break;
++			case graphic_window_mode_normal:
++				gr->widget->setGeometry(gr->x, gr-y, g_screenWidth, g_screenHeight);
++				gr->widget->show();
++				if (gr->widget != NULL)
++				{
++					gr->widget->repaint(gr->x, gr->y, g_screenWidth, g_screenHeight);
++				}
++				break;
++			case graphic_window_mode_full_screen:
++				gr->widget->setGeometry(gr->x, gr-y, g_desktopWidth, g_desktopHeight);
++				gr->widget->show();
++				if (gr->widget != NULL)
++				{
++					gr->widget->repaint(gr->x, gr->y, g_desktopWidth, g_desktopHeight);
++				}
++				break;
++			default:
++    			dbg(lvl_error, "invalide show value(%d)", show);
++				break;
++		}
++	}
++#endif
++#if USE_QWIDGET
++    /* call repaint on widget */
++#endif
++#if USE_QML
++
++#endif
++#if USE_QML
++    if (gr->window != NULL)
++	{
++		switch (show)
++		{
++			case graphic_window_mode_hide:
++				gr->window->hide();
++				break;
++			case graphic_window_mode_normal:
++				gr->window->setGeometry(gr->x, gr->y, g_screenWidth, g_screenHeight);
++				gr->window->show();
++				if (gr->GPriv != NULL)
++				{
++					gr->GPriv->emit_update();
++				}
++				break;
++			case graphic_window_mode_full_screen:
++				gr->window->setGeometry(gr->x, gr->y, g_desktopWidth, g_desktopHeight);
++				gr->window->show();
++				if (gr->GPriv != NULL)
++				{
++					gr->GPriv->emit_update();
++				}
++				break;
++			default:
++    			dbg(lvl_error, "invalide show value(%d)", show);
++				break;
++		}
++	}
++#endif
++}
++
+ static struct graphics_methods graphics_methods = {
+     graphics_destroy,
+     draw_mode,
+@@ -830,6 +911,7 @@ static struct graphics_methods graphics_methods = {
+     get_text_bbox,
+     overlay_disable,
+     overlay_resize,
++	window_show,
+ };
+ 
+ /* create new graphics context on given context */
+@@ -1014,20 +1096,31 @@ static struct graphics_priv* graphics_qt5_new(struct navit* nav, struct graphics
+         struct attr* w = NULL;
+         struct attr* h = NULL;
+         /* default to desktop size if nothing else is given */
+-        QRect geomet;
+-        geomet.setHeight(100);
+-        geomet.setWidth(100);
++        QRect geomet, geoDesktop;
++        geomet.setWidth(g_screenWidth);
++        geomet.setHeight(g_screenHeight);
++
+         /* get desktop size */
+         QScreen* primary = navit_app->primaryScreen();
+-        if (primary != NULL) {
+-            geomet = primary->availableGeometry();
+-        }
++        if (primary != NULL)
++		{
++            geoDesktop = primary->availableGeometry();
++			g_desktopWidth = geoDesktop.width();
++			g_desktopHeight = geoDesktop.height();
++		}
++
+         /* check for height */
+         if ((h = attr_search(attrs, NULL, attr_h)) && (h->u.num > 100))
++		{
+             geomet.setHeight(h->u.num);
++			g_screenHeight = h->u.num;
++		}
+         /* check for width */
+         if ((w = attr_search(attrs, NULL, attr_w)) && (w->u.num > 100))
++		{
+             geomet.setWidth(w->u.num);
++			g_screenWidth = w->u.num;
++		}
+ #if USE_QML
+         if (graphics_priv->window != NULL) {
+             graphics_priv->window->resize(geomet.width(), geomet.height());
+@@ -1062,11 +1155,15 @@ static struct graphics_priv* graphics_qt5_new(struct navit* nav, struct graphics
+     /* show our window */
+ #if USE_QML
+     if (graphics_priv->window != NULL)
++	{
+         graphics_priv->window->show();
++	}
+ #endif
+ #if USE_QWIDGET
+     if (graphics_priv->widget != NULL)
++	{
+         graphics_priv->widget->show();
++	}
+ #endif
+ 
+     return graphics_priv;
+diff --git a/navit/gui/internal/gui_internal_command.c b/navit/gui/internal/gui_internal_command.c
+index 3148e83..74af235 100644
+--- a/navit/gui/internal/gui_internal_command.c
++++ b/navit/gui/internal/gui_internal_command.c
+@@ -36,6 +36,7 @@
+ #include "gui_internal_search.h"
+ #include "gui_internal_poi.h"
+ #include "gui_internal_command.h"
++#include "support/mode_manager/mode_manager.h"
+ #if HAS_IFADDRS
+ #include <ifaddrs.h>
+ #include <arpa/inet.h>
+@@ -975,6 +976,7 @@ static void gui_internal_cmd2_back_to_map(struct gui_priv *this, char *function,
+         int *valid) {
+     gui_internal_prune_menu(this, NULL);
+     gui_internal_check_exit(this);
++	mode_manager_request_display(0);
+ }
+ 
+ 
+diff --git a/navit/navit_shipped.xml b/navit/navit_shipped.xml
+index b245a1b..db9915d 100644
+--- a/navit/navit_shipped.xml
++++ b/navit/navit_shipped.xml
+@@ -63,7 +63,7 @@ Map</text></img>
+ 				<a href='#Tools'><img src='gui_tools'><text>Tools</text></img></a>
+ 				<a href='#Route'><img src='gui_settings'><text>Route</text></img></a>
+ 				<img src='gui_about' onclick='about()'><text>About</text></img>
+-				<img src='gui_quit' onclick='quit()'><text>Quit</text></img>
++				<img src='gui_home' onclick='back_to_map()'><text>Home</text></img>
+ 				</a>
+ 			<a name='Actions'><text>Actions</text>
+ 				<img src='gui_bookmark' onclick='bookmarks()'><text>Bookmarks</text></img>
+diff --git a/navit/start_real.c b/navit/start_real.c
+index ad990d8..78e960f 100644
+--- a/navit/start_real.c
++++ b/navit/start_real.c
+@@ -46,6 +46,7 @@
+ #include "command.h"
+ #include "geom.h"
+ #include "traffic.h"
++#include "support/mode_manager/mode_manager.h"
+ #ifdef HAVE_API_WIN32_CE
+ #include <windows.h>
+ #include <winbase.h>
+@@ -110,6 +111,7 @@ int main_real(int argc, char * const* argv) {
+     linguistics_init();
+     geom_init();
+     traffic_init();
++	mode_manager_init(argc, argv);
+     config_file=NULL;
+ #ifdef HAVE_GETOPT_H
+     opterr=0;  //don't bomb out on errors.
+@@ -119,7 +121,7 @@ int main_real(int argc, char * const* argv) {
+         argc=1;
+     if (argc > 1) {
+         /* Don't forget to update the manpage if you modify theses options */
+-        while((opt = getopt(argc, argv, ":hvc:d:e:s:")) != -1) {
++        while((opt = getopt(argc, argv, ":hvc:d:e:s:-i10")) != -1) {
+             switch(opt) {
+             case 'h':
+                 print_usage();
+@@ -142,6 +144,11 @@ int main_real(int argc, char * const* argv) {
+             case 's':
+                 startup_file=optarg;
+                 break;
++			case '-':
++			case 'i':
++			case '1':
++			case '0':
++				break;
+ #ifdef HAVE_GETOPT_H
+             case ':':
+                 fprintf(stderr, "navit: Error - Option `%c' needs a value\n", optopt);
+@@ -156,7 +163,7 @@ int main_real(int argc, char * const* argv) {
+             }
+         }
+         // use 1st cmd line option that is left for the config file
+-        if (optind < argc) config_file = argv[optind];
++        //if (optind < argc) config_file = argv[optind];
+     }
+ 
+     // if config file is explicitely given only look for it, otherwise try std paths
+diff --git a/navit/support/mode_manager/CMakeLists.txt b/navit/support/mode_manager/CMakeLists.txt
+new file mode 100644
+index 0000000..4d4e904
+--- /dev/null
++++ b/navit/support/mode_manager/CMakeLists.txt
+@@ -0,0 +1,4 @@
++# Find includes in corresponding build directories
++set(CMAKE_INCLUDE_CURRENT_DIR ON)
++
++supportlib_add_library(support_mode_manager mode_manager.c dbus_msg_names.c)
+diff --git a/navit/support/mode_manager/DBusMsgDef.h b/navit/support/mode_manager/DBusMsgDef.h
+new file mode 100644
+index 0000000..89939be
+--- /dev/null
++++ b/navit/support/mode_manager/DBusMsgDef.h
+@@ -0,0 +1,272 @@
++/****************************************************************************************
++ *   FileName    : DBusMsgDef.h
++ *   Description :
++ ****************************************************************************************
++ *
++ *   TCC Version 1.0
++ *   Copyright (c) Telechips Inc.
++ *   All rights reserved
++
++This source code contains confidential information of Telechips.
++Any unauthorized use without a written permission of Telechips including not limited
++to re-distribution in source or binary form is strictly prohibited.
++This source code is provided ¡°AS IS¡± and nothing contained in this source code
++shall constitute any express or implied warranty of any kind, including without limitation,
++any warranty of merchantability, fitness for a particular purpose or non-infringement of any patent,
++copyright or other third party intellectual property right.
++No warranty is made, express or implied, regarding the information¡¯s accuracy,
++completeness, or performance.
++In no event shall Telechips be liable for any claim, damages or other liability arising from,
++out of or in connection with this source code or the use in the source code.
++This source code is provided subject to the terms of a Mutual Non-Disclosure Agreement
++between Telechips and Company.
++*
++****************************************************************************************/
++
++#ifndef DBUS_MSG_DEF_H
++#define DBUS_MSG_DEF_H
++
++#include "MediaPlayerType.h"
++
++/*================================================ LAUNCHER PROCESS DEFINE START ================================================*/
++
++#define LAUNCHER_PROCESS_DBUS_NAME					"telechips.launcher.process"
++#define LAUNCHER_PROCESS_OBJECT_PATH				"/telechips/launcher/process"
++
++#define LAUNCHER_EVENT_INTERFACE					"launcher.event"
++// LAUNCHER SIGNAL EVENT DEFINES
++#define SIGNAL_LAUNCHER_KEY_PRESSED					"signal_launcher_key_pressed"
++#define SIGNAL_LAUNCHER_KEY_LONG_PRESSED			"signal_launcher_key_long_pressed"
++#define SIGNAL_LAUNCHER_KEY_LONG_LONG_PRESSED		"signal_launcher_key_long_long_pressed"
++#define SIGNAL_LAUNCHER_KEY_RELEASED				"signal_launcher_key_released"
++#define SIGNAL_LAUNCHER_KEY_CLICKED					"signal_launcher_key_clicked"
++
++typedef enum {
++	SignalLauncherKeyPressed,
++	SignalLauncherKeyLongPressed,
++	SignalLauncherKeyLongLongPressed,
++	SignalLauncherKeyReleased,
++	SignalLauncherKeyClicked,
++	TotalSignalLauncherEvents
++} SignalLauncherEvent;
++extern const char *g_signalLauncherEventNames[TotalSignalLauncherEvents];
++
++// LAUNCHER METHOD EVENT DEFINES
++#define METHOD_LAUNCHER_ACTIVE_APPLICATION			"method_launcher_active_application"
++#define METHOD_LAUNCHER_START_APPLICATIONS			"method_launcher_start_applications" // is okay to be deleted?
++
++
++typedef enum {
++	MethodLauncherActiveApplication,
++	MethodLauncherStartApplications,
++	TotalMethodLauncherEvents
++} MethodLauncherEvent;
++extern const char *g_methodLauncherEventNames[TotalMethodLauncherEvents];
++
++/*================================================ LAUNCHER PROCESS DEFINE END ================================================*/
++
++/*============================================== TCPLAYER DAEMON PROCESS DEFINE START ==============================================*/
++
++#define TMPLAYER_PROCESS_DBUS_NAME							"telechips.tmplayer.process"
++#define TMPLAYER_PROCESS_OBJECT_PATH						"/telechips/tmplayer/process"
++#define TMPLAYER_EVENT_INTERFACE							"tmplayer.event"
++
++
++// TCPLAYER SIGNAL EVENT DEFINES
++#define SIGNAL_TMPLAYER_PLAY_FAILED							"signal_tmplayer_play_failed"
++#define SIGNAL_TMPLAYER_PLAYSTATE_CHANGED					"signal_tmplayer_playstate_changed"
++#define SIGNAL_TMPLAYER_PLAYTIME_CHANGED					"signal_tmplayer_playtime_changed"
++#define SIGNAL_TMPLAYER_PLAYMODE_CHANGED					"signal_tmplayer_playmode_changed"
++#define SIGNAL_TMPLAYER_TOTALTIME_CHANGED					"signal_tmplayer_totaltime_chagned"
++#define SIGNAL_TMPLAYER_SEEK_COMPLETED						"signal_tmplayer_seek_completed"
++#define SIGNAL_TMPLAYER_ID3_INFOMATION						"signal_tmplayer_id3_infomation"
++#define SIGNAL_TMPLAYER_ALBUMART_KEY						"signal_tmplayer_albumart_key"
++#define SIGNAL_TMPLAYER_ALBUMART_COMPLETED					"signal_tmplayer_albumart_completed"
++#define SIGNAL_TMPLAYER_NO_DEVICE							"signal_tmplayer_no_device"
++#define SIGNAL_TMPLAYER_CONTENT_CHANGED						"signal_tmplayer_content_changed"
++#define SIGNAL_TMPLAYER_DEVICE_CHANGED						"signal_tmplayer_device_changed"
++#define SIGNAL_TMPLAYER_DEVICE_CONNECTED					"signal_tmplayer_device_connected"
++#define SIGNAL_TMPLAYER_DEVICE_DISCONNECTED					"signal_tmplayer_device_disconnect"
++#define SIGNAL_TMPLAYER_DEVICE_READY						"signal_tmplayer_device_ready"
++#define SIGNAL_TMPLAYER_DEVICE_MOUNT_STOP					"signal_tmplayer_device_mount_stop"
++#define SIGNAL_TMPLAYER_NO_SONG								"signal_tmplayer_no_song"
++#define SIGNAL_TMPLAYER_RESET_INFORMATION					"signal_tmplayer_reset_information"
++#define SIGNAL_TMPLAYER_FILENUMBER_CHANGED					"signal_tmplayer_filenumber_changed"
++#define SIGNAL_TMPLAYER_FILENUMBER_UPDATED					"signal_tmplayer_filenumber_updated"
++#define SIGNAL_TMPLAYER_TOTALNUMBER_CHAGNED					"signal_tmplayer_totalnumber_changed"
++#define SIGNAL_TMPLAYER_FILE_DB_COMPLETED					"signal_tmplayer_file_db_completed"
++#define SIGNAL_TMPLAYER_FILENAME_CHANGED					"signal_tmplayer_filename_changed"
++#define SIGNAL_TMPLAYER_FOLDERNAME_CHANGED					"signal_tmplayer_foldername_changed"
++#define SIGNAL_TMPLAYER_FILELIST							"signal_tmplayer_filelist"
++#define SIGNAL_TMPLAYER_META_COUNT_CHANGED					"signal_tmplayer_meta_count_changed"
++#define SIGNAL_TMPLAYER_META_MENU_CHANGED					"signal_tmplayer_meta_menu_changed"
++#define SIGNAL_TMPLAYER_META_ADD_NAME						"signal_tmplayer_meta_add_name"
++#define SIGNAL_TMPLAYER_META_ADD_NAME_COMPLETED				"signal_tmplayer_meta_add_name_completed"
++#define SIGNAL_TMPLAYER_META_CREATE_TRACKLIST				"signal_tmplayer_meta_create_tracklist"
++#define SIGNAL_TMPLAYER_VOLUME_CHANGED						"signal_tmplayer_volume_changed"
++#define SIGNAL_TMPLAYER_DISPLAY_ON							"signal_tmplayer_display_on"
++#define SIGNAL_TMPLAYER_DISPLAY_OFF							"signal_tmplayer_display_off"
++
++typedef enum{
++	SignalTCPlayerPlayFailed,
++	SignalTCPlayerPlayStateChanged,
++	SignalTCPlayerPlayTimeChanged,
++	SignalTCPlayerPlayModeChanged,
++	SignalTCPlayerTotalTimeChanged,
++	SignalTCPlayerSeekCompleted,
++	SignalTCPlayerID3Information,
++	SignalTCPlayerAlbumArtKey,
++	SignalTCPlayerAlbumArtCompleted,
++	SignalTCPlayerNoDevice,
++	SignalTCPlayerContentChanged,
++	SignalTCPlayerDeviceChagned,
++	SignalTCPlayerDeviceConnected,
++	SignalTCPlayerDeviceDisConnected,
++	SignalTCPlayerDeviceReady,
++	SignalTCPlayerDeviceMountStop,
++	SignalTCPlayerNoSong,
++	SignalTCPlayerResetInormation,
++	SignalTCPlayerFileNumberChanged,
++	SignalTCPlayerFileNumberUpdated,
++	SignalTCPlayerTotalNumberChanged,
++	SignalTCPlayerFileDBCompleted,
++	SignalTCPlayerFileNameChanged,
++	SignalTCPlayerFolderNameChanged,
++	SignalTCPlayerFileList,
++	SignalTCPlayerMetaCountChanged,
++	SignalTCPlayerMetaMenuChanged,
++	SignalTCPlayerMetaAddName,
++	SignalTCPlayerMetaAddNameComplate,
++	SignalTCPlayerMetaCreateTrackList,
++	SignalTCPlayerVolumeChanged,
++	SignalTCPlayerDisplayOn,
++	SignalTCPlayerDisplayOff,
++	TotalSignalTCPlayerEvent
++}SignalTCPlayerEvent;
++extern const char* g_signalTCPlayerEventNames[TotalSignalTCPlayerEvent];
++
++//  TCPLAYEr METHOD EVENT DEFINES
++#define METHOD_TMPLAYER_SET_APP_ID							"method_tmplayer_set_app_id"
++#define METHOD_TMPLAYER_CONNECT_DEBUG						"method_tmplayer_connect_debug"
++#define METHOD_TMPLAYER_DB_DEBUG							"method_tmplayer_db_debug"
++#define METHOD_TMPLAYER_CHANGE_CONTENT_TYPE					"method_tmplayer_change_content_type"
++#define METHOD_TMPLAYER_CHANGE_NEXT_DEVICE					"method_tmplayer_change_next_device"
++#define METHOD_TMPLAYER_CHANGE_DEVICE						"method_tmplayer_change_device"
++#define METHOD_TMPLAYER_SET_BROWSING_MODE					"method_tmplayer_set_browsing_mode"
++#define METHOD_TMPLAYER_CHANGE_PLAYMODE						"method_tmplayer_change_playmode"
++#define METHOD_TMPLAYER_TRACK_START							"method_tmplayer_track_start"
++#define METHOD_TMPLAYER_TRACK_STOP							"method_tmplayer_track_stop"
++#define METHOD_TMPLAYER_TRACK_RESUME						"method_tmplayer_track_resume"
++#define METHOD_TMPLAYER_TRACK_PAUSE							"method_tmplayer_track_pause"
++#define METHOD_TMPLAYER_TRACK_UP							"method_tmplayer_track_up"
++#define METHOD_TMPLAYER_TRACK_DOWN							"method_tmplayer_track_down"
++#define METHOD_TMPLAYER_TRACK_MOVE							"method_tmplayer_track_move"
++#define METHOD_TMPLAYER_TRACK_SEEK							"method_tmplayer_track_seek"
++#define METHOD_TMPLAYER_UPDATE_DISPLAY_INFO					"method_tmplayer_update_display_info"
++#define METHOD_TMPLAYER_REQUEST_ALBUMART_KEY				"method_tmplayer_request_albumart_key"
++#define METHOD_TMPLAYER_REQUEST_FILELIST					"method_tmplayer_request_filelist"
++#define METHOD_TMPLAYER_META_BROWSING_START					"method_tmplayer_meta_browsing_start"
++#define METHOD_TMPLAYER_META_BROWSING_REQUEST				"method_tmplayer_meta_browsing_request"
++#define METHOD_TMPLAYER_META_BROWSING_SELECT				"method_tmplayer_meta_browsing_select"
++#define METHOD_TMPLAYER_META_BROWSING_HOME					"method_tmplayer_meta_browsing_home"
++#define METHOD_TMPLAYER_META_BROWSING_UNDO					"method_tmplayer_meta_browsing_undo"
++#define METHOD_TMPLAYER_META_BROWSING_END					"method_tmplayer_meta_browsing_end"
++#define METHOD_TMPLAYER_GET_VOLUME_STEP						"method_tmplayer_get_volume_step"
++#define METHOD_TMPLAYER_VOLUME_UP							"method_tmplayer_volume_up"
++#define METHOD_TMPLAYER_VOLUME_DOWN							"method_tmplayer_volume_down"
++#define METHOD_TMPLAYER_REQUEST_DISPLAY						"method_tmplayer_request_display"
++#define METHOD_TMPLAYER_RELEASE_DISPLAY						"method_tmplayer_release_display"
++#define METHOD_TMPLAYER_NOTIFY_DISPLAY_DONE					"method_tmplayer_notify_display_done"
++
++typedef enum{
++	MethodTCPlayerSetAppID,
++	MethodTCPlayerConnectDebug,
++	MethodTCPlayerDBDebug,
++	MethodTCPlayerChangeContentType,
++	MethodTCPlayerChangeNextDevice,
++	MethodTCPlayerChangeDevice,
++	MethodTCPlayerSetBrowsingMode,
++	MethodTCPlayerChangePlayMode,
++	MethodTCPlayerTrackStart,
++	MethodTCPlayerTrackStop,
++	MethodTCPlayerTrackResume,
++	MethodTCPlayerTrackPause,
++	MethodTCPlayerTrackUp,
++	MethodTCPlayerTrackDown,
++	MethodTCPlayerTrackMove,
++	MethodTCPlayerTrackSeek,
++	MethodTCPlayerUpdateOverlayInfo,
++	MethodTCPlayerRequestAlbumArtKey,
++	MethodTCPlayerRequestList,
++	MethodTCPlayerMetaBrowsingStart,
++	MethodTCPlayerMetaBrowsingRequest,
++	MethodTCPlayerMetaBrowsingSelect,
++	MethodTCPlayerMetaBrowsingHome,
++	MethodTCPlayerMetaBrowsingUndo,
++	MethodTCPlayerMetaBrowsingEnd,
++	MethodTCPlayerGetVolumeStep,
++	MethodTCPlayerVolumeUp,
++	MethodTCPlayerVolumeDown,
++	MethodTCPlayerShowLauncher,
++	MethodTCPlayerHideLauncher,
++	MethodTCPlayerNotifyDisplayDone,
++	TotalMethodTCPlayerEvent
++}MethodTCPlayerEvent;
++extern const char* g_methodTCPlayerEventNames[TotalMethodTCPlayerEvent];
++
++/*============================================== TCPLAYER DAEMON PROCESS DEFINE END ===============================================*/
++
++
++typedef enum {
++	Audio_Entertainment,		// Entertainment volume type
++	Audio_Navigation,			// Navigation volume type
++	Audio_Alert_Text,			// Alert (Text) volume type
++	Audio_Alert_Call,			// Alert (Call) volume type
++	Audio_Alert_Emer,			// Alert (Emergency) volume type
++	Audio_Type_Max
++} TcAudioStreamType;
++
++extern const char *g_deviceSourceNames[TotalDeviceSources];
++
++typedef enum {
++	MetaTypeAll,
++	MetaTypePlaylist,
++	MetaTypeArtist,
++	MetaTypeAlbum,
++	MetaTypeGenre,
++	MetaTypeTrack,
++	MetaTypeComposer,
++	TotalMetaTypes
++} MetaType;
++
++typedef enum {
++	PlayModeNormal,
++	PlayModeShuffleFolder,
++	PlayModeShuffleAll,
++	PlayModeRepeatFolder,
++	PlayModeRepeatAll,
++	PlayModeRepeatTrack,
++	PlayModeIntro,
++	PlayModeFolderIntro,
++	TotalPlayModes
++} PlayMode;
++
++typedef enum {
++	PlayStatusStop,
++	PlayStatusPlaying,
++	PlayStatusPause,
++	PlayStatusFF,
++	PlayStatusRew,
++	PlayStatusEndFFRew,
++	PlayStatusTurboFF,
++	PlayStatusTurboRew,
++	PlayStatusNoStatement,
++	TotalPlayStatus
++} AVPlayStatus;
++extern const char *g_AVPlayStatusNames[TotalPlayStatus];
++
++#define MUSIC_DIR_NAME			"music"
++#define MAX_NAME_LENGTH		512
++#define INVALID_VOLUME		65535
++
++#endif // DBUS_MSG_DEF_H
+diff --git a/navit/support/mode_manager/dbus_msg_define.h b/navit/support/mode_manager/dbus_msg_define.h
+new file mode 100644
+index 0000000..2e305d6
+--- /dev/null
++++ b/navit/support/mode_manager/dbus_msg_define.h
+@@ -0,0 +1,70 @@
++#ifndef DBUS_MSG_DEF_H
++#define DBUS_MSG_DEF_H
++
++/**************************MODE MANAGER DEFINE*******************************************/
++
++#define MODEMANAGER_PROCESS_DBUS_NAME					"telechips.mode.manager"
++#define MODEMANAGER_PROCESS_OBJECT_PATH					"/telechips/mode/manager"
++#define MODEMANAGER_EVENT_INTERFACE						"mode.manager"
++
++/********************************METHOD*************************************************/
++#define CHANGE_MODE										"change_mode"
++#define RELEASE_RESOURCE_DONE							"release_resource_done"
++#define END_MODE										"end_mode"
++#define MODE_ERROR_OCCURED								"mode_error_occured"
++
++typedef enum{
++		Change_Mode,
++		Release_Resource_Done,
++		End_Mode,
++		Mode_Error_Occured,
++		TotalMethodModeManagerEvent
++}MethodModeManagerEvent;
++extern const char* g_methodModeManagerEventNames[TotalMethodModeManagerEvent];
++
++/********************************SIGNAL*************************************************/
++#define CHANGED_MODE									"changed_mode"
++#define RELEASE_RESOURCE								"release_resource"
++typedef enum{
++		Changed_Mode,
++		Release_Resource,
++		TotalSignalModeManagerEvent
++}SignalModeManagerEvent;
++extern const char* g_signalModeManagerEventNames[TotalSignalModeManagerEvent];
++
++/**************************LAUNCHER DEFINE*******************************************/
++
++#define LAUNCHER_PROCESS_DBUS_NAME					"telechips.launcher.process"
++#define LAUNCHER_PROCESS_OBJECT_PATH				"/telechips/launcher/process"
++#define LAUNCHER_EVENT_INTERFACE					"launcher.event"
++
++/********************************METHOD*************************************************/
++#define METHOD_LAUNCHER_ACTIVE_APPLICATION			"method_launcher_active_application"
++#define METHOD_LAUNCHER_START_APPLICATIONS			"method_launcher_start_applications" // is okay to be deleted?
++
++
++typedef enum {
++	MethodLauncherActiveApplication,
++	MethodLauncherStartApplications,
++	TotalMethodLauncherEvents
++} MethodLauncherEvent;
++extern const char *g_methodLauncherEventNames[TotalMethodLauncherEvents];
++
++/********************************SIGNAL*************************************************/
++#define SIGNAL_LAUNCHER_KEY_PRESSED					"signal_launcher_key_pressed"
++#define SIGNAL_LAUNCHER_KEY_LONG_PRESSED			"signal_launcher_key_long_pressed"
++#define SIGNAL_LAUNCHER_KEY_LONG_LONG_PRESSED		"signal_launcher_key_long_long_pressed"
++#define SIGNAL_LAUNCHER_KEY_RELEASED				"signal_launcher_key_released"
++#define SIGNAL_LAUNCHER_KEY_CLICKED					"signal_launcher_key_clicked"
++
++typedef enum {
++	SignalLauncherKeyPressed,
++	SignalLauncherKeyLongPressed,
++	SignalLauncherKeyLongLongPressed,
++	SignalLauncherKeyReleased,
++	SignalLauncherKeyClicked,
++	TotalSignalLauncherEvents
++} SignalLauncherEvent;
++extern const char *g_signalLauncherEventNames[TotalSignalLauncherEvents];
++
++#endif
+diff --git a/navit/support/mode_manager/dbus_msg_names.c b/navit/support/mode_manager/dbus_msg_names.c
+new file mode 100644
+index 0000000..67165df
+--- /dev/null
++++ b/navit/support/mode_manager/dbus_msg_names.c
+@@ -0,0 +1,51 @@
++/****************************************************************************************
++ *   FileName    : DBusMsgDefNames.c
++ *   Description : DBusMsgDefNames.c
++ ****************************************************************************************
++ *
++ *   TCC Version 1.0
++ *   Copyright (c) Telechips Inc.
++ *   All rights reserved
++
++This source code contains confidential information of Telechips.
++Any unauthorized use without a written permission of Telechips including not limited
++to re-distribution in source or binary form is strictly prohibited.
++This source code is provided ¡°AS IS¡± and nothing contained in this source code
++shall constitute any express or implied warranty of any kind, including without limitation,
++any warranty of merchantability, fitness for a particular purpose or non-infringement of any patent,
++copyright or other third party intellectual property right.
++No warranty is made, express or implied, regarding the information¡¯s accuracy,
++completeness, or performance.
++In no event shall Telechips be liable for any claim, damages or other liability arising from,
++out of or in connection with this source code or the use in the source code.
++This source code is provided subject to the terms of a Mutual Non-Disclosure Agreement
++between Telechips and Company.
++*
++****************************************************************************************/
++
++#include "dbus_msg_define.h"
++
++const char *g_methodModeManagerEventNames[TotalMethodModeManagerEvent] = {
++		CHANGE_MODE,
++		RELEASE_RESOURCE_DONE,
++		END_MODE,
++		MODE_ERROR_OCCURED
++};
++
++const char *g_signalModeManagerEventNames[TotalSignalModeManagerEvent] = {
++		CHANGED_MODE,
++		RELEASE_RESOURCE
++};
++
++const char *g_signalLauncherEventNames[TotalSignalLauncherEvents] = {
++	SIGNAL_LAUNCHER_KEY_PRESSED,
++	SIGNAL_LAUNCHER_KEY_LONG_PRESSED,
++	SIGNAL_LAUNCHER_KEY_LONG_LONG_PRESSED,
++	SIGNAL_LAUNCHER_KEY_RELEASED,
++	SIGNAL_LAUNCHER_KEY_CLICKED
++};
++
++const char *g_methodLauncherEventNames[TotalMethodLauncherEvents] = {
++	METHOD_LAUNCHER_ACTIVE_APPLICATION,
++	METHOD_LAUNCHER_START_APPLICATIONS
++};
+diff --git a/navit/support/mode_manager/mode_manager.c b/navit/support/mode_manager/mode_manager.c
+new file mode 100644
+index 0000000..0388e96
+--- /dev/null
++++ b/navit/support/mode_manager/mode_manager.c
+@@ -0,0 +1,461 @@
++#include <stdio.h>
++#include <stdlib.h>
++#include <stdint.h>
++#include <glib.h>
++#include <string.h>
++#include <math.h>
++
++#include "TCDBusRawAPI.h"
++#include "dbus_msg_define.h"
++
++#include "config.h"
++#include "debug.h"
++#include "point.h" /* needs to be before graphics.h */
++#include "graphics.h"
++
++#include "mode_manager.h"
++
++int _appID = 10;
++struct graphics *_graphics = NULL;
++
++static void SendDBusActiveApplication(int app, dbus_bool_t active);
++static int SendDBusModeManagerExit(void);
++static int SendDBusModeManagerChangeMode(const char* mode, int app);
++static void SendDBusModeManagerReleaseResourceDone(int resource);
++static void SendDBusModeManagerEndMode(const char *mode);
++static void SendDBusModeManagerErrorOccur(void);
++
++static DBusMsgErrorCode OnReceivedDBusSignal(DBusMessage *message, const char *interface);
++static void LauncherSignalDBusProcess(unsigned int id, DBusMessage *message);
++static void ModeManagerSignalDBusProcess(unsigned int id, DBusMessage *message);
++
++
++int mode_manager_init(int argc, char * const* argv)
++{
++    dbg(lvl_debug, "Enter");
++	SetCallBackFunctions(OnReceivedDBusSignal, NULL);
++	AddSignalInterface(LAUNCHER_EVENT_INTERFACE);
++	AddSignalInterface(MODEMANAGER_EVENT_INTERFACE);
++	InitializeRawDBusConnection("NAVIT DBUS");
++	return 0;
++}
++
++void mode_manager_set_grapchis(struct graphics *gra)
++{
++    dbg(lvl_debug, "Enter");
++
++	if (gra != NULL)
++	{
++		_graphics = gra;
++		SendDBusActiveApplication(_appID, TRUE);
++	}
++}
++
++void mode_manager_request_display(int show)
++{
++	if (show != 0)
++	{
++		// request full screen
++		SendDBusModeManagerChangeMode(MODE_MANAGER_VIEW, _appID);
++	}
++	else
++	{
++		SendDBusModeManagerChangeMode(MODE_MANAGER_HOME, 0);
++	}
++}
++
++static void SendDBusActiveApplication(int app, dbus_bool_t active)
++{
++	DBusMessage *message;
++
++    dbg(lvl_debug, "Enter");
++	message = CreateDBusMsgMethodCall(LAUNCHER_PROCESS_DBUS_NAME, LAUNCHER_PROCESS_OBJECT_PATH,
++									  LAUNCHER_EVENT_INTERFACE,
++									  METHOD_LAUNCHER_ACTIVE_APPLICATION,
++									  DBUS_TYPE_INT32, &app,
++									  DBUS_TYPE_BOOLEAN, &active,
++									  DBUS_TYPE_INVALID);
++
++	dbg(lvl_debug, "active(%d), app(%d)", active, app);
++
++	if (message != NULL)
++	{
++		if (!SendDBusMessage(message, NULL))
++		{
++			dbg(lvl_error, "SendDBusMessage failed");
++		}
++
++		dbus_message_unref(message);
++	}
++	else
++	{
++		dbg(lvl_error, "CreateDBusMsgMethodCall failed");
++	}
++}
++
++static int SendDBusModeManagerExit(void)
++{
++	int ret, app = LAUNCHERAPPID;
++	const char *mode = MODE_MANAGER_VIEW;
++	DBusMessage *message;
++
++    dbg(lvl_debug, "Enter");
++	message = CreateDBusMsgMethodCall(MODEMANAGER_PROCESS_DBUS_NAME,
++										MODEMANAGER_PROCESS_OBJECT_PATH,
++										MODEMANAGER_EVENT_INTERFACE,
++										CHANGE_MODE,
++										DBUS_TYPE_STRING, &mode,
++										DBUS_TYPE_INT32, &app, DBUS_TYPE_INVALID); // Create DBus Message
++
++	dbg(lvl_debug, "mode(%s), app(%d)", mode, app);
++
++	if (message != NULL)
++	{
++		DBusPendingCall *pending = NULL;
++		if (SendDBusMessage(message, &pending))
++		{
++			if (pending != NULL)
++			{
++				if (GetArgumentFromDBusPendingCall(pending,
++												DBUS_TYPE_INT32, &ret,
++												DBUS_TYPE_INVALID))
++				{
++					dbg(lvl_error, "GetArgmentFromDBusPendingCall, ret(%d)", ret);
++				}
++				else
++				{
++					dbg(lvl_error, "SendDBusMessage failed");
++				}
++				dbus_pending_call_unref(pending);
++			}
++		}
++		else
++		{
++			dbg(lvl_error, "SendDBusMessage failed");
++		}
++		dbus_message_unref(message);
++	}
++	else
++	{
++		dbg(lvl_error, "CreateDBusMsgMethodCall failed");
++	}
++
++	return ret;
++}
++
++static int SendDBusModeManagerChangeMode(const char* mode, int app)
++{
++	int ret;
++	DBusMessage *message;
++
++    dbg(lvl_debug, "Enter");
++	message = CreateDBusMsgMethodCall(MODEMANAGER_PROCESS_DBUS_NAME,
++										MODEMANAGER_PROCESS_OBJECT_PATH,
++										MODEMANAGER_EVENT_INTERFACE,
++										CHANGE_MODE,
++										DBUS_TYPE_STRING, &mode,
++										DBUS_TYPE_INT32, &app, DBUS_TYPE_INVALID); // Create DBus Message
++
++	dbg(lvl_debug, "mode(%s), app(%d)", mode, app);
++
++	if (message != NULL)
++	{
++		DBusPendingCall *pending = NULL;
++		if (SendDBusMessage(message, &pending))
++		{
++			if (pending != NULL)
++			{
++				if (GetArgumentFromDBusPendingCall(pending,
++												DBUS_TYPE_INT32, &ret,
++												DBUS_TYPE_INVALID))
++				{
++					dbg(lvl_debug, "GetArgmentFromDBusPendingCall, ret(%d)", ret);
++				}
++				else
++				{
++					dbg(lvl_error, "GetArgumentFromDBusPendingCall failed");
++				}
++				dbus_pending_call_unref(pending);
++			}
++		}
++		else
++		{
++			dbg(lvl_error, "SendDBusMessage failed");
++		}
++		dbus_message_unref(message);
++	}
++	else
++	{
++		dbg(lvl_error, "CreateDBusMsgMethodCAll failed");
++	}
++
++	return ret;
++}
++
++static void SendDBusModeManagerReleaseResourceDone(int resource)
++{
++    DBusMessage *message;
++
++    dbg(lvl_debug, "Enter");
++    message = CreateDBusMsgMethodCall(MODEMANAGER_PROCESS_DBUS_NAME,
++										MODEMANAGER_PROCESS_OBJECT_PATH,
++										MODEMANAGER_EVENT_INTERFACE,
++										RELEASE_RESOURCE_DONE,
++										DBUS_TYPE_INT32, &resource,
++										DBUS_TYPE_INT32, &_appID,
++										DBUS_TYPE_INVALID);
++
++	dbg(lvl_debug, "resource(%x), app(%d)", resource, _appID);
++
++	if (message != NULL)
++	{
++		if (!SendDBusMessage(message, NULL))
++		{
++			dbg(lvl_error, "SendDBusMessage failed");
++		}
++		dbus_message_unref(message);
++	}
++	else
++	{
++		dbg(lvl_error, "CreateDBusMsgMethodCall failed");
++	}
++}
++
++static void SendDBusModeManagerEndMode(const char *mode)
++{
++    DBusMessage *message;
++	int app = _appID;
++
++    dbg(lvl_debug, "Enter");
++    message = CreateDBusMsgMethodCall(MODEMANAGER_PROCESS_DBUS_NAME,
++										MODEMANAGER_PROCESS_OBJECT_PATH,
++										MODEMANAGER_EVENT_INTERFACE,
++										END_MODE,
++										DBUS_TYPE_STRING, &mode,
++										DBUS_TYPE_INT32, &app,
++										DBUS_TYPE_INVALID);
++
++	dbg(lvl_debug, "mode(%s), app(%d)", mode, app);
++
++	if (message != NULL)
++	{
++		if (!SendDBusMessage(message, NULL))
++		{
++			dbg(lvl_error, "SendDBusMessage failed");
++		}
++		dbus_message_unref(message);
++	}
++	else
++	{
++		dbg(lvl_error, "CreateDBusMsgMethodCall failed");
++	}
++}
++
++static void SendDBusModeManagerErrorOccur(void)
++{
++	int app = _appID;
++	DBusMessage *message;
++
++    dbg(lvl_debug, "Enter");
++	message = CreateDBusMsgMethodCall(MODEMANAGER_PROCESS_DBUS_NAME,
++										MODEMANAGER_PROCESS_OBJECT_PATH,
++										MODEMANAGER_EVENT_INTERFACE,
++										MODE_ERROR_OCCURED,
++										DBUS_TYPE_INT32, &app,
++										DBUS_TYPE_INVALID);
++
++	if (message != NULL)
++	{
++		if (!SendDBusMessage(message, NULL))
++		{
++			dbg(lvl_error, "SendDBusMessage failed");
++		}
++		dbus_message_unref(message);
++	}
++	else
++	{
++		dbg(lvl_error, "CreateDBusMsgMethodCall failed");
++	}
++}
++
++static DBusMsgErrorCode OnReceivedDBusSignal(DBusMessage *message, const char *interface)
++{
++	int32_t rsc, app;
++	const char *mode;
++	DBusMsgErrorCode error = ErrorCodeNoError;
++
++    dbg(lvl_debug, "Enter");
++
++	if ((message != NULL) &&
++		(interface != NULL))
++	{
++		uint32_t idx;
++		uint32_t stop = 0;
++
++		if (strcmp(interface, MODEMANAGER_EVENT_INTERFACE) == 0) // Process Mode Manager's Signal
++		{
++			for (idx = Changed_Mode; (idx < TotalSignalModeManagerEvent) && (stop == 0); idx++)
++			{
++				if (dbus_message_is_signal(message,
++											MODEMANAGER_EVENT_INTERFACE,
++											g_signalModeManagerEventNames[idx]))
++				{
++					ModeManagerSignalDBusProcess(idx, message);
++					stop = 1;
++				}
++			}
++		}
++		else if (strcmp(interface, LAUNCHER_EVENT_INTERFACE) == 0)
++		{
++			for (idx = SignalLauncherKeyPressed; idx < TotalSignalLauncherEvents && !stop; idx++)
++			{
++				if (dbus_message_is_signal(message,
++										   LAUNCHER_EVENT_INTERFACE,
++										   g_signalLauncherEventNames[idx]))
++				{
++					LauncherSignalDBusProcess(idx, message);
++					stop = 1;
++				}
++			}
++		}
++	}
++
++	return error;
++}
++
++static void LauncherSignalDBusProcess(unsigned int id, DBusMessage *message)
++{
++    dbg(lvl_debug, "Enter");
++	dbg(lvl_debug, "receive launcher signal(%d)", id);
++
++	if (id < TotalSignalLauncherEvents)
++	{
++		if (message != NULL)
++		{
++			int value = -1;
++			if (GetArgumentFromDBusMessage(message,
++										   DBUS_TYPE_INT32, &value,
++										   DBUS_TYPE_INVALID))
++			{
++				dbg(lvl_debug, "launcher signal(%s): id(%d)", g_signalLauncherEventNames[id], value);
++				switch (id)
++				{
++					case SignalLauncherKeyPressed:
++						break;
++					case SignalLauncherKeyLongPressed:
++						break;
++					case SignalLauncherKeyLongLongPressed:
++						break;
++					case SignalLauncherKeyReleased:
++						break;
++					case SignalLauncherKeyClicked:
++						break;
++					default:
++						dbg(lvl_warning, "unknown signal id(%d)", id);
++						break;
++				}
++			}
++		}
++		else
++		{
++			dbg(lvl_error, "GetArgumentFromDBusMessage failed");
++		}
++	}
++}
++
++static void ModeManagerSignalDBusProcess(unsigned int id, DBusMessage *message)
++{
++	int rsc, app;
++	const char *mode;
++
++    dbg(lvl_debug, "Enter");
++	dbg(lvl_debug, "receive mode manager signal(%d)", id);
++
++	switch (id)
++	{
++		case Release_Resource:
++			if (GetArgumentFromDBusMessage(message, DBUS_TYPE_INT32, &rsc,
++									DBUS_TYPE_INT32, &app, DBUS_TYPE_INVALID))
++			{
++				dbg(lvl_debug, "mode manager signal(%s): rsc(%x), app(%d)", g_signalModeManagerEventNames[id], rsc, app);
++				if (app == _appID)
++				{
++					if (rsc & RSC_DISPLAY)
++					{
++						graphics_window_show(_graphics, graphic_window_mode_hide);
++						SendDBusModeManagerReleaseResourceDone(RSC_DISPLAY);
++					}
++
++					if (rsc & RSC_AUDIO)
++					{
++						//release audio resource
++					}
++				}
++			}
++			else
++			{
++				dbg(lvl_error, "GetArgumentFromDBusMessage failed");
++			}
++			break;
++		case Changed_Mode:
++			if (GetArgumentFromDBusMessage(message, DBUS_TYPE_STRING, &mode,
++									DBUS_TYPE_INT32, &app, DBUS_TYPE_INVALID))
++			{
++				dbg(lvl_debug, "mode manager signal(%s): mode(%s), app(%d)", g_signalModeManagerEventNames[id], mode, app);
++
++				if (strncmp(mode, MODE_MANAGER_VIEW, strlen(MODE_MANAGER_VIEW)) == 0)
++				{
++					dbg(lvl_debug, "change mode to %s", MODE_MANAGER_VIEW);
++
++					if (app == _appID)
++					{
++						if (_graphics != NULL)
++						{
++							graphics_window_show(_graphics, graphic_window_mode_full_screen);
++						}
++						else
++						{
++							dbg(lvl_error, "grapchis not initialized");
++						}
++						SendDBusModeManagerChangeMode(MODE_MANAGER_NAVI_ALARM, _appID);
++					}
++				}
++				else if (strncmp(mode, MODE_MANAGER_HOME, strlen(MODE_MANAGER_HOME)) == 0)
++				{
++					dbg(lvl_debug, "change mode to %s", MODE_MANAGER_HOME);
++					if (app == 0)
++					{
++						if (_graphics != NULL)
++						{
++							graphics_window_show(_graphics, graphic_window_mode_normal);
++						}
++						else
++						{
++							dbg(lvl_error, "grapchis not initialized");
++						}
++						SendDBusModeManagerChangeMode(MODE_MANAGER_NAVI_ALARM_BG, _appID);
++					}
++				}
++				else if (strncmp(mode, MODE_MANAGER_NAVI_ALARM, strlen(MODE_MANAGER_NAVI_ALARM)) == 0)
++				{
++					dbg(lvl_debug, "change mode to %s", MODE_MANAGER_NAVI_ALARM);
++				}
++				else if (strncmp(mode, MODE_MANAGER_NAVI_ALARM_BG, strlen(MODE_MANAGER_NAVI_ALARM_BG)) == 0)
++				{
++					dbg(lvl_debug, "change mode to %s", MODE_MANAGER_NAVI_ALARM_BG);
++				}
++				else
++				{
++					dbg(lvl_warning, "not support mode(%s)", mode);
++				}
++			}
++			else
++			{
++				dbg(lvl_error, "GetArgumentFromDBusMessage failed");
++			}
++
++			break;
++		default:
++			break;
++	}
++}
+diff --git a/navit/support/mode_manager/mode_manager.h b/navit/support/mode_manager/mode_manager.h
+new file mode 100644
+index 0000000..381f561
+--- /dev/null
++++ b/navit/support/mode_manager/mode_manager.h
+@@ -0,0 +1,22 @@
++#ifndef MODE_MANAGER_H_INCLUDED
++#define MODE_MANAGER_H_INCLUDED
++
++#define LAUNCHERAPPID					0
++
++#define IDLE							"idle"
++#define MODE_MANAGER_VIEW				"view"
++#define MODE_MANAGER_HOME				"home"
++#define MODE_MANAGER_NAVI_ALARM			"navialarm"
++#define MODE_MANAGER_NAVI_ALARM_BG		"navialarmbg"
++
++#define RSC_NONE						0x0000
++#define RSC_DISPLAY						0x0001
++#define RSC_AUDIO						0x0002
++
++struct graphics;
++
++int mode_manager_init(int argc, char * const* argv);
++void mode_manager_set_grapchis(struct graphics *gra);
++void mode_manager_request_display(int show);
++
++#endif
+-- 
+1.9.3
+
