@@ -1,0 +1,12 @@
+[Unit]
+Description=Hud demo video player
+Requires=systemd-modules-load.service
+After=systemd-modules-load.service
+
+[Service]
+Type=simple
+Environment=V4L2_DEVICE=/dev/video11
+ExecStart=/usr/bin/g_player_self_test --videosink v4l2sink /etc/Hud_demo_2020.mp4
+
+[Install]
+WantedBy=multi-user.target

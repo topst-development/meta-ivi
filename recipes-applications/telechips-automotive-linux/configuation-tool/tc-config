@@ -1,0 +1,581 @@
+#!/bin/sh
+
+# Copyright (c) 2012 Alex Bradbury <asb@asbradbury.org>
+
+# Permission is hereby granted, free of charge, to any person
+# obtaining a copy of this software and associated documentation
+# files (the "Software"), to deal in the Software without
+# restriction, including without limitation the rights to use,
+# copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the
+# Software is furnished to do so, subject to the following
+# conditions:
+
+# The above copyright notice and this permission notice shall be
+# included in all copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+# OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+# NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+# WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+# FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+# OTHER DEALINGS IN THE SOFTWARE.
+#
+
+INTERACTIVE=True
+ASK_TO_REBOOT=0
+
+USER=${SUDO_USER:-$(who -m | awk '{ print $1 }')}
+
+convert_cidr2netmask()  {
+  cidr=24
+
+  # Calculate the binary subnet mask
+  binary_subnet_mask=$(printf '%*s' "$cidr" | tr ' ' '1'; printf '%*s' "$((32-cidr))" | tr ' ' '0')
+
+  # Split the binary subnet mask into octets
+  binary_octets=$(echo $binary_subnet_mask | sed 's/.\{8\}/& /g')
+  IFS=' ' read -r -a binary_octets <<< "$binary_octets"
+
+  # Convert each binary octet to decimal
+  decimal_octets=()
+  for binary_octet in "${binary_octets[@]}"; do
+    decimal_octet=$((2#${binary_octet}))
+    decimal_octets+=("$decimal_octet")
+  done
+
+  # Join the decimal octets with periods to get the subnet mask
+  subnet_mask=$(IFS='.'; echo "${decimal_octets[*]}")
+
+  echo "Subnet mask: $subnet_mask"
+}
+
+convert_netmask2cidr()  {
+  subnet_mask="255.255.128.0"
+
+  # Split the subnet mask into octets
+  IFS='.' read -r -a octets <<< "$subnet_mask"
+
+  # Convert each octet to binary
+  binary_octets=()
+  for octet in "${octets[@]}"; do
+    binary=$(echo "obase=2; $octet" | bc)
+    binary_octets+=("$(printf "%08d" "$binary")")
+  done
+
+  # Count the number of 1's in the binary subnet mask
+  cidr_size=0
+  for binary_octet in "${binary_octets[@]}"; do
+    for (( i=0; i<${#binary_octet}; i++ )); do
+      if [ "${binary_octet:i:1}" == "1" ]; then
+        ((cidr_size++))
+      fi
+    done
+  done
+
+  echo "CIDR size: $cidr_size"
+}
+
+do_ssh() {
+  if [ -e /var/log/regen_ssh_keys.log ] && ! grep -q "^finished" /var/log/regen_ssh_keys.log; then
+    whiptail --msgbox "Initial ssh key generation still running. Please wait and try again." 20 60 2
+    return 1
+  fi
+  DEFAULT=--defaultno
+  if [ $(get_ssh) -eq 0 ]; then
+    DEFAULT=
+  fi
+  if [ "$INTERACTIVE" = True ]; then
+    whiptail --yesno \
+      "Would you like the SSH server to be enabled?\n\nCaution: Default and weak passwords are a security risk when SSH is enabled!" \
+      $DEFAULT 20 60 2
+    RET=$?
+  else
+    RET=$1
+  fi
+  if [ $RET -eq 0 ]; then
+	systemctl start sshd.socket
+	systemctl enable sshd.socket
+    STATUS=enabled
+  elif [ $RET -eq 1 ]; then
+	systemctl disable sshd.socket
+	systemctl stop sshd.socket
+    STATUS=disabled
+  else
+    return $RET
+  fi
+  if [ "$INTERACTIVE" = True ]; then
+    whiptail --msgbox "The SSH server is $STATUS" 20 60 1
+  fi
+}
+
+#  CHOICE=$(whiptail --separate-output --radiolist "Network Configuration" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT \
+do_systemd_networkd() {
+
+  cp /lib/systemd/network/80-wired.network /tmp
+
+  isDHCP=$(grep "DHCP=yes" /tmp/80-wired.network| cut -d "=" -f 2)
+  if [ "$isDHCP" = yes ]; then
+    isDHCP=ON
+    isSTATIC=OFF
+  else
+    isDHCP=OFF
+    isSTATIC=ON
+  fi
+
+  CHOICE=$(whiptail --separate-output --radiolist "Network Configuration" $DEFAULT 20 60 2 \
+    "DHCP" "Use Dynamic Host Protocol      " $isDHCP \
+    "STATIC" "Configure Static IP      " $isSTATIC \
+    3>&1 1>&2 2>&3)
+
+  if [ "$CHOICE" = DHCP ]; then
+    cat > /lib/systemd/network/80-wired.network << EOF
+#DHCP Setting
+[Match]
+Name=eth*
+KernelCommandLine=!nfsroot
+
+[Network]
+DHCP=yes
+
+[DHCP]
+RouteMetric=10
+ClientIdentifier=mac
+EOF
+    systemctl daemon-reload
+    systemctl restart systemd-networkd
+  elif [ "$CHOICE" = STATIC ]; then
+    awk '/^Name/{print $0}' /tmp/80-wired.network > network.tmp
+    #CURRENT_NAME=$(cut -d '=' -f 2 network.tmp)	
+    awk '/^MTUBytes/{print $0}' /tmp/80-wired.network > network.tmp
+    CURRENT_MTUBYTES=$(cut -d '=' -f 2 network.tmp)
+    awk '/^MACAddress/{print $0}' /tmp/80-wired.network > network.tmp
+    #CURRENT_MACADDRESS=$(cut -d '=' -f 2 network.tmp)
+    awk '/^Address/{print $0}' /tmp/80-wired.network > network.tmp
+    #CURRENT_IPADDRESS=$(cut -d '=' -f 2 network.tmp)
+    awk '/^Gateway/{print $0}' /tmp/80-wired.network > network.tmp
+    #CURRENT_GATEWAY=$(cut -d '=' -f 2 network.tmp)
+    rm -rf network.tmp
+
+    CURRENT_NAME=$(ip -o -4 route show to default | awk '{print $5}')
+    if [ -z $CURRENT_NAME ]; then
+      whiptail --msgbox "There was a worong iface name $CURRENT_NAME" 20 60 1
+      return 0
+    fi
+
+    CURRENT_IPADDRESS=$(/sbin/ip -o -4 addr list $CURRENT_NAME | awk '{print $4}' | cut -d/ -f1)
+    SET_IPADDRESS=$(whiptail --inputbox "Please enter a Address" 20 60 "$CURRENT_IPADDRESS" 3>&1 1>&2 2>&3)
+    if [[ $SET_IPADDRESS =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      echo ""
+    else
+      whiptail --msgbox "There was a worong Address $SET_IPADDRESS" 20 60 1
+      return 0
+    fi
+
+    CIDR_SIZE=0
+    CURRENT_NETMASK=$(ifconfig $CURRENT_NAME | grep 'netmask' | awk '{print $4}')
+    SET_NETMASK=$(whiptail --inputbox "Please enter a netmask" 20 60 "$CURRENT_NETMASK" 3>&1 1>&2 2>&3)
+    if [[ $SET_NETMASK =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      echo ""
+      # Convert netmask to CIDR      
+      # Split the subnet mask into octets
+      IFS='.' read -r -a octets <<< "$SET_NETMASK"
+
+      # Convert each octet to binary
+      binary_octets=()
+      for octet in "${octets[@]}"; do
+        binary=$(echo "obase=2; $octet" | bc)
+        binary_octets+=("$(printf "%08d" "$binary")")
+      done
+
+      # Count the number of 1's in the binary subnet mask
+      for binary_octet in "${binary_octets[@]}"; do
+        for (( i=0; i<${#binary_octet}; i++ )); do
+          if [ "${binary_octet:i:1}" == "1" ]; then
+            ((CIDR_SIZE++))
+          fi
+        done
+      done
+
+    else
+      whiptail --msgbox "There was a worong netmask $SET_NETMASK" 20 60 1
+      return 0
+    fi
+
+    CURRENT_GATEWAY=$(route -n | grep 'UG[ \t]' | awk '{print $2}')
+    SET_GATEWAY=$(whiptail --inputbox "Please enter a Gateway" 20 60 "$CURRENT_GATEWAY" 3>&1 1>&2 2>&3)
+    if [[ $SET_GATEWAY =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      echo ""
+    else
+      whiptail --msgbox "There was a worong Gateway $FUN" 20 60 1
+      return 0
+    fi
+
+    read CURRENT_MACADDRESS </sys/class/net/$CURRENT_NAME/address
+    SET_MACADDRESS=$(whiptail --inputbox "Please enter a MACAddress" 20 60 "$CURRENT_MACADDRESS" 3>&1 1>&2 2>&3)
+    case $SET_MACADDRESS
+    in 
+      [0-9a-f][0-9a-f]:[0-9a-z][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f]:[0-9a-f][0-9a-f])
+        echo ""
+      ;;
+      *) whiptail --msgbox "There was a worong MAC Address $SET_MACADDRESS" 20 60 1
+         return 0
+      ;;
+    esac
+
+    if [ -z $CURRENT_MTUBYTES ]; then
+      CURRENT_MTUBYTES=1500
+    fi
+
+    cat > /lib/systemd/network/80-wired.network << EOF
+#Static Setting
+[Match]
+Name=$CURRENT_NAME
+
+[Link]
+MACAddress=$SET_MACADDRESS
+MTUBytes=$CURRENT_MTUBYTES
+
+[Network]
+Address=$SET_IPADDRESS/$CIDR_SIZE
+Gateway=$SET_GATEWAY
+
+[Route]
+Gateway=$SET_GATEWAY
+EOF
+    systemctl daemon-reload
+	  systemctl restart systemd-networkd
+  fi
+}
+
+do_advanced_menu() {
+  FUN=$(whiptail --title "Software Configuration Tool" --menu "Advanced Options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Back --ok-button Select \
+    "A1 SSH" "Enable/disable remote command line access using SSH" \
+    "A2 Network Config" "Set network configuration tool" \
+    3>&1 1>&2 2>&3)
+
+  RET=$?
+  if [ $RET -eq 1 ]; then
+    return 0
+  elif [ $RET -eq 0 ]; then
+    case "$FUN" in
+      A1\ *) do_ssh ;;
+      A2\ *) do_systemd_networkd ;;
+      *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+    esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
+  fi
+}
+
+list_wlan_interfaces() {
+  for dir in /sys/class/net/*/wireless; do
+    if [ -d "$dir" ]; then
+      basename "$(dirname "$dir")"
+    fi
+  done
+}
+
+get_wifi_country() {
+  CODE=${1:-0}
+  IFACE="$(list_wlan_interfaces | head -n 1)"
+  if [ -z "$IFACE" ]; then
+    if [ "$INTERACTIVE" = True ]; then
+      whiptail --msgbox "No wireless interface found" 20 60
+    fi
+    return 1
+  fi
+  if ! wpa_cli -i "$IFACE" status > /dev/null 2>&1; then
+    if [ "$INTERACTIVE" = True ]; then
+      whiptail --msgbox "Could not communicate with wpa_supplicant" 20 60
+    fi
+    return 1
+  fi
+  wpa_cli -i "$IFACE" save_config > /dev/null 2>&1
+  COUNTRY="$(wpa_cli -i "$IFACE" get country)"
+  if [ "$COUNTRY" = "FAIL" ]; then
+    return 1
+  fi
+  if [ $CODE = 0 ]; then
+    echo "$COUNTRY"
+  fi
+  return 0
+}
+
+do_wifi_country() {
+  IFACE="$(list_wlan_interfaces | head -n 1)"
+  if [ -z "$IFACE" ]; then
+    if [ "$INTERACTIVE" = True ]; then
+      whiptail --msgbox "No wireless interface found" 20 60
+    fi
+    return 1
+  fi
+
+  if ! wpa_cli -i "$IFACE" status > /dev/null 2>&1; then
+    if [ "$INTERACTIVE" = True ]; then
+      whiptail --msgbox "Could not communicate with wpa_supplicant" 20 60
+    fi
+    return 1
+  fi
+
+  oIFS="$IFS"
+  if [ "$INTERACTIVE" = True ]; then
+    value=$(cat /usr/share/zoneinfo/iso3166.tab | tail -n +26 | tr '\t' '/' | tr '\n' '/')
+    IFS="/"
+    COUNTRY=$(whiptail --menu "Select the country in which the it is to be used" 20 60 10 ${value} 3>&1 1>&2 2>&3)
+  else
+    COUNTRY=$1
+    true
+  fi
+  if [ $? -eq 0 ];then
+    wpa_cli -i "$IFACE" set country "$COUNTRY"
+    wpa_cli -i "$IFACE" save_config > /dev/null 2>&1
+    if iw reg set "$COUNTRY" 2> /dev/null; then
+      ASK_TO_REBOOT=1
+    fi
+    if hash rfkill 2> /dev/null; then
+      rfkill unblock wifi
+      if is_pi ; then
+        for filename in /var/lib/systemd/rfkill/*:wlan ; do
+          echo 0 > $filename
+        done
+      fi
+    fi
+    if [ "$INTERACTIVE" = True ]; then
+      whiptail --msgbox "Wireless LAN country set to $COUNTRY" 20 60 1
+    fi
+  fi
+  IFS=$oIFS
+}
+
+do_wifi_ssid_passphrase() {
+  RET=0
+  IFACE_LIST="$(list_wlan_interfaces)"
+  IFACE="$(echo "$IFACE_LIST" | head -n 1)"
+
+  if [ -z "$IFACE" ]; then
+    if [ "$INTERACTIVE" = True ]; then
+      whiptail --msgbox "No wireless interface found" 20 60
+    fi
+    return 1
+  fi
+
+  if ! wpa_cli -i "$IFACE" status > /dev/null 2>&1; then
+    if [ "$INTERACTIVE" = True ]; then
+      whiptail --msgbox "Could not communicate with wpa_supplicant" 20 60
+    fi
+    return 1
+  fi
+
+  if [ "$INTERACTIVE" = True ] && [ -z "$(get_wifi_country)" ]; then
+    do_wifi_country
+  fi
+
+  SSID="$1"
+  while [ -z "$SSID" ] && [ "$INTERACTIVE" = True ]; do
+    SSID=$(whiptail --inputbox "Please enter SSID" 20 60 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ]; then
+      return 0
+    elif [ -z "$SSID" ]; then
+      whiptail --msgbox "SSID cannot be empty. Please try again." 20 60
+    fi
+  done
+
+  PASSPHRASE="$2"
+  while [ "$INTERACTIVE" = True ]; do
+    PASSPHRASE=$(whiptail --passwordbox "Please enter passphrase. Leave it empty if none." 20 60 3>&1 1>&2 2>&3)
+    if [ $? -ne 0 ]; then
+      return 0
+    else
+      break
+    fi
+  done
+
+  # Escape special characters for embedding in regex below
+  local ssid="$(echo "$SSID" \
+   | sed 's;\\;\\\\;g' \
+   | sed -e 's;\.;\\\.;g' \
+         -e 's;\*;\\\*;g' \
+         -e 's;\+;\\\+;g' \
+         -e 's;\?;\\\?;g' \
+         -e 's;\^;\\\^;g' \
+         -e 's;\$;\\\$;g' \
+         -e 's;\/;\\\/;g' \
+         -e 's;\[;\\\[;g' \
+         -e 's;\];\\\];g' \
+         -e 's;{;\\{;g'   \
+         -e 's;};\\};g'   \
+         -e 's;(;\\(;g'   \
+         -e 's;);\\);g'   \
+         -e 's;";\\\\\";g')"
+
+  wpa_cli -i "$IFACE" list_networks \
+   | tail -n +2 | cut -f -2 | grep -P "\t$ssid$" | cut -f1 \
+   | while read ID; do
+    wpa_cli -i "$IFACE" remove_network "$ID" > /dev/null 2>&1
+  done
+
+  ID="$(wpa_cli -i "$IFACE" add_network)"
+  wpa_cli -i "$IFACE" set_network "$ID" ssid "\"$SSID\"" 2>&1 | grep -q "OK"
+  RET=$((RET + $?))
+
+  if [ -z "$PASSPHRASE" ]; then
+    wpa_cli -i "$IFACE" set_network "$ID" key_mgmt NONE 2>&1 | grep -q "OK"
+    RET=$((RET + $?))
+  else
+    wpa_cli -i "$IFACE" set_network "$ID" psk "\"$PASSPHRASE\"" 2>&1 | grep -q "OK"
+    RET=$((RET + $?))
+  fi
+
+  if [ $RET -eq 0 ]; then
+    wpa_cli -i "$IFACE" enable_network "$ID" > /dev/null 2>&1
+  else
+    wpa_cli -i "$IFACE" remove_network "$ID" > /dev/null 2>&1
+    if [ "$INTERACTIVE" = True ]; then
+      whiptail --msgbox "Failed to set SSID or passphrase" 20 60
+    fi
+  fi
+  wpa_cli -i "$IFACE" save_config > /dev/null 2>&1
+
+  echo "$IFACE_LIST" | while read IFACE; do
+    wpa_cli -i "$IFACE" reconfigure > /dev/null 2>&1
+  done
+
+  return $RET
+}
+
+do_change_pass() {
+  whiptail --msgbox "You will now be asked to enter a new password for the $USER user" 20 60 1
+  passwd $USER &&
+  whiptail --msgbox "Password changed successfully" 20 60 1
+}
+
+do_hostname() {
+  if [ "$INTERACTIVE" = True ]; then
+    whiptail --msgbox "\
+Please note: RFCs mandate that a hostname's labels \
+may contain only the ASCII letters 'a' through 'z' (case-insensitive), 
+the digits '0' through '9', and the hyphen.
+Hostname labels cannot begin or end with a hyphen. 
+No other symbols, punctuation characters, or blank spaces are permitted.\
+" 20 70 1
+  fi
+  CURRENT_HOSTNAME=`cat /etc/hostname | tr -d " \t\n\r"`
+  if [ "$INTERACTIVE" = True ]; then
+    NEW_HOSTNAME=$(whiptail --inputbox "Please enter a hostname" 20 60 "$CURRENT_HOSTNAME" 3>&1 1>&2 2>&3)
+  else
+    NEW_HOSTNAME=$1
+    true
+  fi
+  if [ $? -eq 0 ]; then
+    echo $NEW_HOSTNAME > /etc/hostname
+    sed -i "s/127.0.1.1.*$CURRENT_HOSTNAME/127.0.1.1\t$NEW_HOSTNAME/g" /etc/hosts
+    ASK_TO_REBOOT=1
+  fi
+}
+
+do_boot_behaviour() {
+  if [ "$INTERACTIVE" = True ]; then
+    BOOTOPT=$(whiptail --title "Configuration Tool" --menu "Boot Options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT \
+      "B1 Console" "Text console, requiring user to login" \
+      "B2 Console Autologin" "Text console, automatically logged in as '$USER' user" \
+      3>&1 1>&2 2>&3)
+  else
+    BOOTOPT=$1
+    true
+  fi
+  if [ $? -eq 0 ]; then
+    case "$BOOTOPT" in
+      B1*)
+		sed  /lib/systemd/system/serial-getty@.service -i -e \
+		"s/^\(#\|\)ExecStart=.*/ExecStart=-\/sbin\/agetty -8 -L \%I 115200 \$TERM/"
+        ;;
+      B2*)
+		sed  /lib/systemd/system/serial-getty@.service -i -e \
+		"s/^\(#\|\)ExecStart=.*/ExecStart=-\/sbin\/agetty -8 -a root -L \%I 115200 \$TERM/"
+        ;;
+      *)
+        whiptail --msgbox "Programmer error, unrecognised boot option" 20 60 2
+        return 1
+        ;;
+    esac
+    ASK_TO_REBOOT=1
+  fi
+}
+
+do_system_menu() {
+  FUN=$(whiptail --title "Configuration Tool" --menu "System Options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Back --ok-button Select \
+    "S1 Wireless LAN" "Enter SSID and passphrase" \
+    "S2 Password" "Change password for the '$USER' user" \
+    "S3 Hostname" "Set name for this computer on a network" \
+	  "S4 Boot / Auto Login" "Select boot into desktop or to command line" \
+    3>&1 1>&2 2>&3)
+
+  RET=$?
+  if [ $RET -eq 1 ]; then
+    return 0
+  elif [ $RET -eq 0 ]; then
+    case "$FUN" in
+      S1\ *) do_wifi_ssid_passphrase ;;
+      S2\ *) do_change_pass ;;
+      S3\ *) do_hostname ;;
+      S4\ *) do_boot_behaviour ;;
+      *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+    esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
+  fi
+}
+
+calc_wt_size() {
+  # NOTE: it's tempting to redirect stderr to /dev/null, so supress error 
+  # output from tput. However in this case, tput detects neither stdout or 
+  # stderr is a tty and so only gives default 80, 24 values
+  WT_HEIGHT=18
+  WT_WIDTH=$(tput cols)
+
+  if [ -z "$WT_WIDTH" ] || [ "$WT_WIDTH" -lt 60 ]; then
+    WT_WIDTH=80
+  fi
+  if [ "$WT_WIDTH" -gt 178 ]; then
+    WT_WIDTH=120
+  fi
+  WT_MENU_HEIGHT=$(($WT_HEIGHT-7))
+}
+
+do_finish() {
+  if [ $ASK_TO_REBOOT -eq 1 ]; then
+    whiptail --yesno "Would you like to reboot now?" 20 60 2
+    if [ $? -eq 0 ]; then # yes
+      sync
+      reboot
+    fi
+  fi
+  exit 0
+}
+
+#
+# Interactive use loop
+#
+if [ "$INTERACTIVE" = True ]; then
+  [ -e $CONFIG ] || touch $CONFIG
+  calc_wt_size
+
+  while true; do
+    FUN=$(whiptail --title "Software Configuration Tool" --menu "Setup Options" $WT_HEIGHT $WT_WIDTH $WT_MENU_HEIGHT --cancel-button Finish --ok-button Select \
+ 	  "1 System Options" "Configure system settings" \
+    "2 Advanced Options" "Configure advanced settings" \
+	   3>&1 1>&2 2>&3)
+
+    RET=$?
+    if [ $RET -eq 1 ]; then
+      do_finish
+    elif [ $RET -eq 0 ]; then
+      case "$FUN" in
+        1\ *) do_system_menu ;;
+        2\ *) do_advanced_menu ;;
+        *) whiptail --msgbox "Programmer error: unrecognized option" 20 60 1 ;;
+      esac || whiptail --msgbox "There was an error running option $FUN" 20 60 1
+    else
+      exit 1
+    fi
+  done
+fi

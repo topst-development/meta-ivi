@@ -1,0 +1,14 @@
+[Unit]
+Description=Telechips Media Player Daemon
+After=AudioManager.service tc-media-playback.service
+RequiresMountsFor=/home/root
+
+[Service]
+Type=forking
+ExecStartPre=/bin/udevadm trigger --action=remove --subsystem-match=block --sysname-match=mmcblk[1-9]*
+ExecStart=/usr/bin/tmplayer
+RestartSec=2min
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,83 @@
+From 786c2f70188361588ea1e6d2e9257befe49f135d Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Tue, 27 Aug 2019 20:43:43 +0900
+Subject: [PATCH] Update configuration   > enable osd   > change zoom level(16)
+   > disable window frame
+
+---
+ navit/graphics/qt5/graphics_qt5.cpp |  2 ++
+ navit/navit_shipped.xml             | 10 +++++-----
+ navit/osd/core/osd_core.c           |  4 ++--
+ 3 files changed, 9 insertions(+), 7 deletions(-)
+
+diff --git a/navit/graphics/qt5/graphics_qt5.cpp b/navit/graphics/qt5/graphics_qt5.cpp
+index 8d8d9c4..da8cd4f 100644
+--- a/navit/graphics/qt5/graphics_qt5.cpp
++++ b/navit/graphics/qt5/graphics_qt5.cpp
+@@ -1156,12 +1156,14 @@ static struct graphics_priv* graphics_qt5_new(struct navit* nav, struct graphics
+ #if USE_QML
+     if (graphics_priv->window != NULL)
+ 	{
++        graphics_priv->window->setFlags(Qt::FramelessWindowHint);
+         graphics_priv->window->show();
+ 	}
+ #endif
+ #if USE_QWIDGET
+     if (graphics_priv->widget != NULL)
+ 	{
++        graphics_priv->widget->setWindowFlags(Qt::FramelessWindowHint);
+         graphics_priv->widget->show();
+ 	}
+ #endif
+diff --git a/navit/navit_shipped.xml b/navit/navit_shipped.xml
+index fc75d4d..d263af5 100644
+--- a/navit/navit_shipped.xml
++++ b/navit/navit_shipped.xml
+@@ -35,7 +35,7 @@
+ 	For other formats see http://wiki.navit-project.org/index.php/Coordinate_format.
+ 	-->
+ 	<!-- <navit center="11.5666 48.1333" zoom="64" tracking="1" orientation="-1" recent_dest="250" drag_bitmap="0" default_layout="Car"> -->
+-	<navit center="127.102981 37.515233" zoom="64" tracking="1" orientation="-1" recent_dest="250" drag_bitmap="0" default_layout="Car">
++	<navit center="127.102981 37.515233" zoom="16" tracking="1" orientation="-1" recent_dest="250" drag_bitmap="0" default_layout="Car">
+ 		<!-- Use one of gtk_drawing_area, qt_qpainter or sdl. On windows systems, use win32 -->
+ 		<graphics type="qt5"/>
+ 		<!--
+@@ -175,16 +175,16 @@ Waypoint</text></img>
+ 		<!-- osd items allow to position display and control items directly on top of the map.
+ 		You can find a list of all the available OSDs items here:
+ 		http://wiki.navit-project.org/index.php/OSD -->
+-		<osd enabled="no" type="compass"/>
+-		<osd enabled="no" type="navigation_next_turn"/>
++		<osd enabled="yes" type="compass"/>
++		<osd enabled="yes" type="navigation_next_turn"/>
+ 
+ 		<!-- Commands include gui_internal_menu, gui_internal_fullscreen, zoom_in and zoom_out.
+ 			Usage of negative values change the button origins. x="0" y="0" specifies the top left, x="-0" y="-0" the bottom right corner.
+ 			It's always the top left corner of the icon, so you need to consider the icon's size when you enter the values. -->
+ 		<osd enabled="no" type="button" x="0" y="0" command="gui.fullscreen=!gui.fullscreen" src="toggle_fullscreen.png"/>
+ 		<osd enabled="no" type="button" x="-96" y="0" command="gui.menu(1)" src="menu.png"/>
+-		<osd enabled="no" type="button" x="-96" y="-96" command="zoom_in()" src="zoom_in.png"/>
+-		<osd enabled="no" type="button" x="0" y="-96" command="zoom_out()" src="zoom_out.png"/>
++		<osd enabled="yes" type="button" x="-68" y="-68" command="zoom_in()" src="zoom_in.png"/>
++		<osd enabled="yes" type="button" x="20" y="-68" command="zoom_out()" src="zoom_out.png"/>
+ 
+ 		<!-- Traffic -->
+ 		<traffic type="null"/>
+diff --git a/navit/osd/core/osd_core.c b/navit/osd/core/osd_core.c
+index fbf025c..d173a02 100644
+--- a/navit/osd/core/osd_core.c
++++ b/navit/osd/core/osd_core.c
+@@ -2148,8 +2148,8 @@ static struct osd_priv *osd_nav_next_turn_new(struct navit *nav, struct osd_meth
+     struct attr *attr;
+ 
+     opc->data = (void*)this;
+-    opc->osd_item.rel_x = 20;
+-    opc->osd_item.rel_y = -80;
++    opc->osd_item.rel_x = -90;
++    opc->osd_item.rel_y = 20;
+     opc->osd_item.rel_w = 70;
+     opc->osd_item.navit = nav;
+     opc->osd_item.rel_h = 70;
+-- 
+1.9.3
+

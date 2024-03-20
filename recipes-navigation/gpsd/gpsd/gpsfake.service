@@ -1,0 +1,9 @@
+[Unit]
+Description=GPS Fake
+
+[Service]
+EnvironmentFile=/etc/default/gpsd
+ExecStart=/usr/bin/gpsfake -c 0.2 $GPS_FAKE_FILE
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,178 @@
+From 4446b0cc035db4c7a57ea7bcfce48878c96cfdc4 Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Wed, 6 Nov 2019 09:17:29 +0000
+Subject: [PATCH] add-back-home-key-process
+
+---
+ navit/graphics/qt5/QNavitQuick.cpp        |  3 +++
+ navit/gui/internal/gui_internal.c         | 10 ++++++++++
+ navit/keys.h                              |  1 +
+ navit/support/mode_manager/mode_manager.c | 28 ++++++++++++++++++++++++----
+ navit/support/mode_manager/mode_manager.h |  6 ++++--
+ 5 files changed, 42 insertions(+), 6 deletions(-)
+
+diff --git a/navit/graphics/qt5/QNavitQuick.cpp b/navit/graphics/qt5/QNavitQuick.cpp
+index dcd0d2aa5..87d46cd7f 100644
+--- a/navit/graphics/qt5/QNavitQuick.cpp
++++ b/navit/graphics/qt5/QNavitQuick.cpp
+@@ -146,6 +146,9 @@ void QNavitQuick::keyPressEvent(QKeyEvent* event) {
+     case Qt::Key_PageDown:
+         key[0] = NAVIT_KEY_PAGE_DOWN;
+         break;
++    case Qt::Key_Home:
++        key[0] = NAVIT_KEY_HOME;
++        break;
+     default:
+         QString str = event->text();
+         if ((str != NULL) && (str.size() != 0)) {
+diff --git a/navit/gui/internal/gui_internal.c b/navit/gui/internal/gui_internal.c
+index 726a03d17..78daf8bb4 100644
+--- a/navit/gui/internal/gui_internal.c
++++ b/navit/gui/internal/gui_internal.c
+@@ -89,6 +89,7 @@
+ #include "gui_internal_poi.h"
+ #include "gui_internal_command.h"
+ #include "gui_internal_keyboard.h"
++#include "support/mode_manager/mode_manager.h"
+ 
+ 
+ /**
+@@ -2808,6 +2809,12 @@ static void gui_internal_keypress(void *data, char *key) {
+             gui_internal_set_click_coord(this, NULL);
+             gui_internal_cmd_menu(this, 0, NULL);
+             break;
++    	case NAVIT_KEY_BACK:
++			mode_manager_request_to_all_apps();
++			break;
++    	case NAVIT_KEY_HOME:
++			mode_manager_request_to_home();
++			break;
+         }
+         return;
+     }
+@@ -2843,6 +2850,9 @@ static void gui_internal_keypress(void *data, char *key) {
+         else
+             gui_internal_keypress_do(this, key);
+         break;
++   	case NAVIT_KEY_HOME:
++		mode_manager_request_to_home();
++		break;
+     default:
+         gui_internal_keypress_do(this, key);
+     }
+diff --git a/navit/keys.h b/navit/keys.h
+index a47a1bcca..a61b4b4b5 100644
+--- a/navit/keys.h
++++ b/navit/keys.h
+@@ -13,3 +13,4 @@
+ #define NAVIT_KEY_TAB 9 /* TAB */
+ #define NAVIT_KEY_PAGE_UP 33
+ #define NAVIT_KEY_PAGE_DOWN 34
++#define NAVIT_KEY_HOME 101
+diff --git a/navit/support/mode_manager/mode_manager.c b/navit/support/mode_manager/mode_manager.c
+index 286792383..57db0ba0c 100644
+--- a/navit/support/mode_manager/mode_manager.c
++++ b/navit/support/mode_manager/mode_manager.c
+@@ -17,6 +17,7 @@
+ #include "mode_manager.h"
+ 
+ int g_appID = 10;
++static int _mode = graphic_window_mode_normal;
+ struct graphics *_graphics = NULL;
+ 
+ static void mode_manager_send_dbus_active_application(int app, dbus_bool_t active);
+@@ -57,16 +58,32 @@ void mode_manager_set_grapchis(struct graphics *gra)
+ 	}
+ }
+ 
+-void mode_manager_request_display(int show)
++void mode_manager_request_display(int display)
+ {
+-	if (show != 0)
++	if (display != 0)
+ 	{
+ 		// request full screen
+ 		mode_manager_send_dbus_change_mode(MODE_MANAGER_VIEW, g_appID);
+ 	}
+ 	else
+ 	{
+-		mode_manager_send_dbus_change_mode(MODE_MANAGER_HOME, 0);
++		mode_manager_send_dbus_change_mode(MODE_MANAGER_HOME, LAUNCHER_APP_ID);
++	}
++}
++
++void mode_manager_request_to_home(void)
++{
++	if (_mode == graphic_window_mode_full_screen)
++	{
++		mode_manager_send_dbus_change_mode(MODE_MANAGER_HOME, LAUNCHER_APP_ID);
++	}
++}
++
++void mode_manager_request_to_all_apps(void)
++{
++	if (_mode == graphic_window_mode_full_screen)
++	{
++		mode_manager_send_dbus_change_mode(MODE_MANAGER_VIEW, LAUNCHER_APP_ID);
+ 	}
+ }
+ 
+@@ -101,7 +118,7 @@ static void mode_manager_send_dbus_active_application(int app, dbus_bool_t activ
+ 
+ static int mode_manager_send_dbus_exit(void)
+ {
+-	int ret, app = LAUNCHERAPPID;
++	int ret, app = LAUNCHER_APP_ID;
+ 	const char *mode = MODE_MANAGER_VIEW;
+ 	DBusMessage *message;
+ 
+@@ -296,6 +313,7 @@ static void mode_manager_change_mode(const char *mode, int app)
+ 			if (_graphics != NULL)
+ 			{
+ 				graphics_window_show(_graphics, graphic_window_mode_full_screen);
++				_mode = graphic_window_mode_full_screen;
+ 			}
+ 			else
+ 			{
+@@ -306,6 +324,7 @@ static void mode_manager_change_mode(const char *mode, int app)
+ 		else
+ 		{
+ 			graphics_window_show(_graphics, graphic_window_mode_hide);
++			_mode = graphic_window_mode_hide;
+ 		}
+ 	}
+ 	else if (strncmp(mode, MODE_MANAGER_HOME, strlen(MODE_MANAGER_HOME)) == 0)
+@@ -316,6 +335,7 @@ static void mode_manager_change_mode(const char *mode, int app)
+ 			if (_graphics != NULL)
+ 			{
+ 				graphics_window_show(_graphics, graphic_window_mode_normal);
++				_mode = graphic_window_mode_normal;
+ 			}
+ 			else
+ 			{
+diff --git a/navit/support/mode_manager/mode_manager.h b/navit/support/mode_manager/mode_manager.h
+index 381f561ff..ebc2573c6 100644
+--- a/navit/support/mode_manager/mode_manager.h
++++ b/navit/support/mode_manager/mode_manager.h
+@@ -1,7 +1,7 @@
+ #ifndef MODE_MANAGER_H_INCLUDED
+ #define MODE_MANAGER_H_INCLUDED
+ 
+-#define LAUNCHERAPPID					0
++#define LAUNCHER_APP_ID					0
+ 
+ #define IDLE							"idle"
+ #define MODE_MANAGER_VIEW				"view"
+@@ -17,6 +17,8 @@ struct graphics;
+ 
+ int mode_manager_init(int argc, char * const* argv);
+ void mode_manager_set_grapchis(struct graphics *gra);
+-void mode_manager_request_display(int show);
++void mode_manager_request_display(int display);
++void mode_manager_request_to_home(void);
++void mode_manager_request_to_all_apps(void);
+ 
+ #endif
+-- 
+2.13.3
+

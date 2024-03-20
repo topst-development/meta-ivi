@@ -1,0 +1,68 @@
+From acdb812ba371019d4581d9847b40745b16ff37d4 Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Thu, 24 Oct 2019 05:28:45 +0000
+Subject: [PATCH] update geometry for bigger than 1920x720
+
+---
+ navit/graphics/qt5/graphics_qt5.cpp | 28 +++++++++++++++++++++++++---
+ 1 file changed, 25 insertions(+), 3 deletions(-)
+
+diff --git a/navit/graphics/qt5/graphics_qt5.cpp b/navit/graphics/qt5/graphics_qt5.cpp
+index 9ad646cc1..c1206a0ae 100644
+--- a/navit/graphics/qt5/graphics_qt5.cpp
++++ b/navit/graphics/qt5/graphics_qt5.cpp
+@@ -839,11 +839,11 @@ static void window_show(struct graphics_priv* gr, int show) {
+ 				}
+ 				break;
+ 			case graphic_window_mode_full_screen:
+-				gr->widget->setGeometry(gr->x, gr-y, g_desktopWidth, g_desktopHeight);
++				gr->widget->setGeometry(0, 0, g_desktopWidth, g_desktopHeight);
+ 				gr->widget->show();
+ 				if (gr->widget != NULL)
+ 				{
+-					gr->widget->repaint(gr->x, gr->y, g_desktopWidth, g_desktopHeight);
++					gr->widget->repaint(0, 0, g_desktopWidth, g_desktopHeight);
+ 				}
+ 				break;
+ 			default:
+@@ -875,7 +875,7 @@ static void window_show(struct graphics_priv* gr, int show) {
+ 				}
+ 				break;
+ 			case graphic_window_mode_full_screen:
+-				gr->window->setGeometry(gr->x, gr->y, g_desktopWidth, g_desktopHeight);
++				gr->window->setGeometry(0, 0, g_desktopWidth, g_desktopHeight);
+ 				gr->window->show();
+ 				if (gr->GPriv != NULL)
+ 				{
+@@ -1121,6 +1121,28 @@ static struct graphics_priv* graphics_qt5_new(struct navit* nav, struct graphics
+             geomet.setWidth(w->u.num);
+ 			g_screenWidth = w->u.num;
+ 		}
++
++		if (g_desktopWidth > DEFAULT_DESKTOP_SIZE_WIDTH)
++		{
++			graphics_priv->x = (g_desktopWidth - DEFAULT_DESKTOP_SIZE_WIDTH) / 2;
++		}
++
++		if (g_desktopHeight > DEFAULT_DESKTOP_SIZE_HEIGHT)
++		{
++			graphics_priv->y = (g_desktopHeight - DEFAULT_DESKTOP_SIZE_HEIGHT) / 2;
++		}
++#if USE_QWIDGET
++    if (graphics_priv->widget != NULL)
++	{
++		graphics_priv->widget->setGeometry(graphics_priv->x, graphics_priv->y, g_screenWidth, g_screenHeight);
++	}
++#elif USE_QML
++    if (graphics_priv->window != NULL)
++	{
++		graphics_priv->window->setGeometry(graphics_priv->x, graphics_priv->y, g_screenWidth, g_screenHeight);
++	}
++#endif
++
+ #if USE_QML
+         if (graphics_priv->window != NULL) {
+             graphics_priv->window->resize(geomet.width(), geomet.height());
+-- 
+2.13.3
+

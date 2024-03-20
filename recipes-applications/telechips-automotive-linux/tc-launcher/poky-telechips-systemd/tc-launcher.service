@@ -1,0 +1,15 @@
+[Unit]
+Description=launcher gui process
+ConditionPathExists=/var/run/user/root/wayland-0
+Requires=dbus.socket
+After=dbus.socket
+
+[Service]
+Type=notify
+PIDFile=/var/run/tc-launcher.pid
+Environment=LANG=ko_KR.EUC-KR
+EnvironmentFile=/etc/sysconfig/weston
+ExecStart=/usr/bin/Launcher --no-daemon --keyboard=/dev/input/virtual-keyboard
+
+[Install]
+WantedBy=multi-user.target

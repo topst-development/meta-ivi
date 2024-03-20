@@ -1,0 +1,152 @@
+From 9d0f294b6e32f0a67fc5641d4cc6e8e65071bacb Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Thu, 21 Nov 2019 16:01:15 +0900
+Subject: [PATCH] add window hide conditions
+
+---
+ navit/support/mode_manager/mode_manager.c | 89 +++++++++++++++++++------------
+ navit/support/mode_manager/mode_manager.h |  4 ++
+ 2 files changed, 58 insertions(+), 35 deletions(-)
+
+diff --git a/navit/support/mode_manager/mode_manager.c b/navit/support/mode_manager/mode_manager.c
+index 57db0ba..9511512 100644
+--- a/navit/support/mode_manager/mode_manager.c
++++ b/navit/support/mode_manager/mode_manager.c
+@@ -36,6 +36,7 @@ static DBusMsgErrorCode mode_manager_on_received_dbus_signal(DBusMessage *messag
+ static void mode_manager_launcher_signal_dbus_process(unsigned int id, DBusMessage *message);
+ static void mode_manager_mode_manager_signal_dbus_process(unsigned int id, DBusMessage *message);
+ 
++#define MAX_MODE_LENGTH		11
+ 
+ int mode_manager_init(int argc, char * const* argv)
+ {
+@@ -304,58 +305,76 @@ static void mode_manager_send_dbus_error_occur(void)
+ 
+ static void mode_manager_change_mode(const char *mode, int app)
+ {
+-	if (strncmp(mode, MODE_MANAGER_VIEW, strlen(MODE_MANAGER_VIEW)) == 0)
+-	{
+-		dbg(lvl_debug, "change mode to %s", MODE_MANAGER_VIEW);
++	unsigned int strLen = 0;
++	dbg(lvl_debug, "change mode to %s", mode);
+ 
++	strLen = strlen(mode);
++	if (strLen > MAX_MODE_LENGTH)
++	{
++		dbg(lvl_error, "mode name is too long");
++	}
++	else
++	{
+ 		if (app == g_appID)
+ 		{
+-			if (_graphics != NULL)
++			if (strncmp(mode, MODE_MANAGER_VIEW, strLen) == 0)
++			{
++				if (_graphics != NULL)
++				{
++					graphics_window_show(_graphics, graphic_window_mode_full_screen);
++					_mode = graphic_window_mode_full_screen;
++				}
++				else
++				{
++					dbg(lvl_error, "grapchis not initialized");
++				}
++				mode_manager_send_dbus_change_mode(MODE_MANAGER_NAVI_ALARM, g_appID);
++			}
++			else if (strncmp(mode, MODE_MANAGER_NAVI_ALARM, strLen) == 0)
++			{
++			}
++			else if (strncmp(mode, MODE_MANAGER_NAVI_ALARM_BG, strLen) == 0)
+ 			{
+-				graphics_window_show(_graphics, graphic_window_mode_full_screen);
+-				_mode = graphic_window_mode_full_screen;
+ 			}
+ 			else
+ 			{
+-				dbg(lvl_error, "grapchis not initialized");
++				dbg(lvl_warning, "not support mode(%s)", mode);
+ 			}
+-			mode_manager_send_dbus_change_mode(MODE_MANAGER_NAVI_ALARM, g_appID);
+ 		}
+ 		else
+ 		{
+-			graphics_window_show(_graphics, graphic_window_mode_hide);
+-			_mode = graphic_window_mode_hide;
+-		}
+-	}
+-	else if (strncmp(mode, MODE_MANAGER_HOME, strlen(MODE_MANAGER_HOME)) == 0)
+-	{
+-		dbg(lvl_debug, "change mode to %s", MODE_MANAGER_HOME);
+-		if (app == 0)
+-		{
+-			if (_graphics != NULL)
++			if ((strncmp(mode, MODE_MANAGER_VIEW, strLen) == 0) ||
++					(strncmp(mode, MODE_MANAGER_AUDIO_PLAY, strLen) == 0) ||
++					(strncmp(mode, MODE_MANAGER_VIDEO_PLAY, strLen) == 0) ||
++					(strncmp(mode, MODE_MANAGER_VOICE_REC, strLen) == 0) ||
++					(strncmp(mode, MODE_MANAGER_CALL, strLen) == 0) ||
++					(strncmp(mode, MODE_MANAGER_NAVI_ALARM, strLen) == 0))
+ 			{
+-				graphics_window_show(_graphics, graphic_window_mode_normal);
+-				_mode = graphic_window_mode_normal;
++				graphics_window_show(_graphics, graphic_window_mode_hide);
++				_mode = graphic_window_mode_hide;
+ 			}
+-			else
++			else if (strncmp(mode, MODE_MANAGER_HOME, strLen) == 0)
+ 			{
+-				dbg(lvl_error, "grapchis not initialized");
++				if (app == 0)
++				{
++					if (_graphics != NULL)
++					{
++						graphics_window_show(_graphics, graphic_window_mode_normal);
++						_mode = graphic_window_mode_normal;
++					}
++					else
++					{
++						dbg(lvl_error, "grapchis not initialized");
++					}
++					mode_manager_send_dbus_change_mode(MODE_MANAGER_NAVI_ALARM_BG, g_appID);
++				}
++				else
++				{
++					dbg(lvl_warning, "mode and app id mis-matched(mode[%s]:app id[%d])", mode, app);
++				}
+ 			}
+-			mode_manager_send_dbus_change_mode(MODE_MANAGER_NAVI_ALARM_BG, g_appID);
+ 		}
+ 	}
+-	else if (strncmp(mode, MODE_MANAGER_NAVI_ALARM, strlen(MODE_MANAGER_NAVI_ALARM)) == 0)
+-	{
+-		dbg(lvl_debug, "change mode to %s", MODE_MANAGER_NAVI_ALARM);
+-	}
+-	else if (strncmp(mode, MODE_MANAGER_NAVI_ALARM_BG, strlen(MODE_MANAGER_NAVI_ALARM_BG)) == 0)
+-	{
+-		dbg(lvl_debug, "change mode to %s", MODE_MANAGER_NAVI_ALARM_BG);
+-	}
+-	else
+-	{
+-		dbg(lvl_warning, "not support mode(%s)", mode);
+-	}
+ }
+ 
+ static void mode_manager_release_resource(int resource, int app)
+diff --git a/navit/support/mode_manager/mode_manager.h b/navit/support/mode_manager/mode_manager.h
+index ebc2573..e44d396 100644
+--- a/navit/support/mode_manager/mode_manager.h
++++ b/navit/support/mode_manager/mode_manager.h
+@@ -5,6 +5,10 @@
+ 
+ #define IDLE							"idle"
+ #define MODE_MANAGER_VIEW				"view"
++#define MODE_MANAGER_AUDIO_PLAY			"audioplay"
++#define MODE_MANAGER_VIDEO_PLAY			"videoplay"
++#define MODE_MANAGER_VOICE_REC			"voicerec"
++#define MODE_MANAGER_CALL				"call"
+ #define MODE_MANAGER_HOME				"home"
+ #define MODE_MANAGER_NAVI_ALARM			"navialarm"
+ #define MODE_MANAGER_NAVI_ALARM_BG		"navialarmbg"
+-- 
+1.9.3
+

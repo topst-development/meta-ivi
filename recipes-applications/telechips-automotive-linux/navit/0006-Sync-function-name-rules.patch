@@ -1,0 +1,319 @@
+From e2599fc636ec4baa44d58876c4d0e01a8dff962b Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Wed, 28 Aug 2019 11:24:54 +0900
+Subject: [PATCH 1/2] Sync function name rules
+
+---
+ navit/support/mode_manager/mode_manager.c | 181 ++++++++++++++++--------------
+ 1 file changed, 96 insertions(+), 85 deletions(-)
+
+diff --git a/navit/support/mode_manager/mode_manager.c b/navit/support/mode_manager/mode_manager.c
+index 0388e96..44ff95b 100644
+--- a/navit/support/mode_manager/mode_manager.c
++++ b/navit/support/mode_manager/mode_manager.c
+@@ -18,22 +18,25 @@
+ int _appID = 10;
+ struct graphics *_graphics = NULL;
+ 
+-static void SendDBusActiveApplication(int app, dbus_bool_t active);
+-static int SendDBusModeManagerExit(void);
+-static int SendDBusModeManagerChangeMode(const char* mode, int app);
+-static void SendDBusModeManagerReleaseResourceDone(int resource);
+-static void SendDBusModeManagerEndMode(const char *mode);
+-static void SendDBusModeManagerErrorOccur(void);
++static void mode_manager_send_dbus_active_application(int app, dbus_bool_t active);
++static int mode_manager_send_dbus_exit(void);
++static int mode_manager_send_dbus_change_mode(const char* mode, int app);
++static void mode_manager_send_dbus_release_resource_done(int resource);
++static void mode_manager_send_dbus_end_mode(const char *mode);
++static void mode_manager_send_dbus_error_occur(void);
+ 
+-static DBusMsgErrorCode OnReceivedDBusSignal(DBusMessage *message, const char *interface);
+-static void LauncherSignalDBusProcess(unsigned int id, DBusMessage *message);
+-static void ModeManagerSignalDBusProcess(unsigned int id, DBusMessage *message);
++static void mode_manager_change_mode(const char *mode, int app);
++static void mode_manager_release_resource(int resource, int app);
++
++static DBusMsgErrorCode mode_manager_on_received_dbus_signal(DBusMessage *message, const char *interface);
++static void mode_manager_launcher_signal_dbus_process(unsigned int id, DBusMessage *message);
++static void mode_manager_mode_manager_signal_dbus_process(unsigned int id, DBusMessage *message);
+ 
+ 
+ int mode_manager_init(int argc, char * const* argv)
+ {
+     dbg(lvl_debug, "Enter");
+-	SetCallBackFunctions(OnReceivedDBusSignal, NULL);
++	SetCallBackFunctions(mode_manager_on_received_dbus_signal, NULL);
+ 	AddSignalInterface(LAUNCHER_EVENT_INTERFACE);
+ 	AddSignalInterface(MODEMANAGER_EVENT_INTERFACE);
+ 	InitializeRawDBusConnection("NAVIT DBUS");
+@@ -47,7 +50,7 @@ void mode_manager_set_grapchis(struct graphics *gra)
+ 	if (gra != NULL)
+ 	{
+ 		_graphics = gra;
+-		SendDBusActiveApplication(_appID, TRUE);
++		mode_manager_send_dbus_active_application(_appID, TRUE);
+ 	}
+ }
+ 
+@@ -56,15 +59,15 @@ void mode_manager_request_display(int show)
+ 	if (show != 0)
+ 	{
+ 		// request full screen
+-		SendDBusModeManagerChangeMode(MODE_MANAGER_VIEW, _appID);
++		mode_manager_send_dbus_change_mode(MODE_MANAGER_VIEW, _appID);
+ 	}
+ 	else
+ 	{
+-		SendDBusModeManagerChangeMode(MODE_MANAGER_HOME, 0);
++		mode_manager_send_dbus_change_mode(MODE_MANAGER_HOME, 0);
+ 	}
+ }
+ 
+-static void SendDBusActiveApplication(int app, dbus_bool_t active)
++static void mode_manager_send_dbus_active_application(int app, dbus_bool_t active)
+ {
+ 	DBusMessage *message;
+ 
+@@ -93,7 +96,7 @@ static void SendDBusActiveApplication(int app, dbus_bool_t active)
+ 	}
+ }
+ 
+-static int SendDBusModeManagerExit(void)
++static int mode_manager_send_dbus_exit(void)
+ {
+ 	int ret, app = LAUNCHERAPPID;
+ 	const char *mode = MODE_MANAGER_VIEW;
+@@ -143,7 +146,7 @@ static int SendDBusModeManagerExit(void)
+ 	return ret;
+ }
+ 
+-static int SendDBusModeManagerChangeMode(const char* mode, int app)
++static int mode_manager_send_dbus_change_mode(const char* mode, int app)
+ {
+ 	int ret;
+ 	DBusMessage *message;
+@@ -192,7 +195,7 @@ static int SendDBusModeManagerChangeMode(const char* mode, int app)
+ 	return ret;
+ }
+ 
+-static void SendDBusModeManagerReleaseResourceDone(int resource)
++static void mode_manager_send_dbus_release_resource_done(int resource)
+ {
+     DBusMessage *message;
+ 
+@@ -221,7 +224,7 @@ static void SendDBusModeManagerReleaseResourceDone(int resource)
+ 	}
+ }
+ 
+-static void SendDBusModeManagerEndMode(const char *mode)
++static void mode_manager_send_dbus_end_mode(const char *mode)
+ {
+     DBusMessage *message;
+ 	int app = _appID;
+@@ -251,7 +254,7 @@ static void SendDBusModeManagerEndMode(const char *mode)
+ 	}
+ }
+ 
+-static void SendDBusModeManagerErrorOccur(void)
++static void mode_manager_send_dbus_error_occur(void)
+ {
+ 	int app = _appID;
+ 	DBusMessage *message;
+@@ -278,7 +281,73 @@ static void SendDBusModeManagerErrorOccur(void)
+ 	}
+ }
+ 
+-static DBusMsgErrorCode OnReceivedDBusSignal(DBusMessage *message, const char *interface)
++static void mode_manager_change_mode(const char *mode, int app)
++{
++	if (strncmp(mode, MODE_MANAGER_VIEW, strlen(MODE_MANAGER_VIEW)) == 0)
++	{
++		dbg(lvl_debug, "change mode to %s", MODE_MANAGER_VIEW);
++
++		if (app == _appID)
++		{
++			if (_graphics != NULL)
++			{
++				graphics_window_show(_graphics, graphic_window_mode_full_screen);
++			}
++			else
++			{
++				dbg(lvl_error, "grapchis not initialized");
++			}
++			mode_manager_send_dbus_change_mode(MODE_MANAGER_NAVI_ALARM, _appID);
++		}
++	}
++	else if (strncmp(mode, MODE_MANAGER_HOME, strlen(MODE_MANAGER_HOME)) == 0)
++	{
++		dbg(lvl_debug, "change mode to %s", MODE_MANAGER_HOME);
++		if (app == 0)
++		{
++			if (_graphics != NULL)
++			{
++				graphics_window_show(_graphics, graphic_window_mode_normal);
++			}
++			else
++			{
++				dbg(lvl_error, "grapchis not initialized");
++			}
++			mode_manager_send_dbus_change_mode(MODE_MANAGER_NAVI_ALARM_BG, _appID);
++		}
++	}
++	else if (strncmp(mode, MODE_MANAGER_NAVI_ALARM, strlen(MODE_MANAGER_NAVI_ALARM)) == 0)
++	{
++		dbg(lvl_debug, "change mode to %s", MODE_MANAGER_NAVI_ALARM);
++	}
++	else if (strncmp(mode, MODE_MANAGER_NAVI_ALARM_BG, strlen(MODE_MANAGER_NAVI_ALARM_BG)) == 0)
++	{
++		dbg(lvl_debug, "change mode to %s", MODE_MANAGER_NAVI_ALARM_BG);
++	}
++	else
++	{
++		dbg(lvl_warning, "not support mode(%s)", mode);
++	}
++}
++
++static void mode_manager_release_resource(int resource, int app)
++{
++	if (app == _appID)
++	{
++		if (resource & RSC_DISPLAY)
++		{
++			graphics_window_show(_graphics, graphic_window_mode_hide);
++			mode_manager_send_dbus_release_resource_done(RSC_DISPLAY);
++		}
++
++		if (resource & RSC_AUDIO)
++		{
++			//release audio resource
++		}
++	}
++}
++
++static DBusMsgErrorCode mode_manager_on_received_dbus_signal(DBusMessage *message, const char *interface)
+ {
+ 	int32_t rsc, app;
+ 	const char *mode;
+@@ -300,7 +369,7 @@ static DBusMsgErrorCode OnReceivedDBusSignal(DBusMessage *message, const char *i
+ 											MODEMANAGER_EVENT_INTERFACE,
+ 											g_signalModeManagerEventNames[idx]))
+ 				{
+-					ModeManagerSignalDBusProcess(idx, message);
++					mode_manager_mode_manager_signal_dbus_process(idx, message);
+ 					stop = 1;
+ 				}
+ 			}
+@@ -313,7 +382,7 @@ static DBusMsgErrorCode OnReceivedDBusSignal(DBusMessage *message, const char *i
+ 										   LAUNCHER_EVENT_INTERFACE,
+ 										   g_signalLauncherEventNames[idx]))
+ 				{
+-					LauncherSignalDBusProcess(idx, message);
++					mode_manager_launcher_signal_dbus_process(idx, message);
+ 					stop = 1;
+ 				}
+ 			}
+@@ -323,7 +392,7 @@ static DBusMsgErrorCode OnReceivedDBusSignal(DBusMessage *message, const char *i
+ 	return error;
+ }
+ 
+-static void LauncherSignalDBusProcess(unsigned int id, DBusMessage *message)
++static void mode_manager_launcher_signal_dbus_process(unsigned int id, DBusMessage *message)
+ {
+     dbg(lvl_debug, "Enter");
+ 	dbg(lvl_debug, "receive launcher signal(%d)", id);
+@@ -363,7 +432,7 @@ static void LauncherSignalDBusProcess(unsigned int id, DBusMessage *message)
+ 	}
+ }
+ 
+-static void ModeManagerSignalDBusProcess(unsigned int id, DBusMessage *message)
++static void mode_manager_mode_manager_signal_dbus_process(unsigned int id, DBusMessage *message)
+ {
+ 	int rsc, app;
+ 	const char *mode;
+@@ -377,20 +446,8 @@ static void ModeManagerSignalDBusProcess(unsigned int id, DBusMessage *message)
+ 			if (GetArgumentFromDBusMessage(message, DBUS_TYPE_INT32, &rsc,
+ 									DBUS_TYPE_INT32, &app, DBUS_TYPE_INVALID))
+ 			{
+-				dbg(lvl_debug, "mode manager signal(%s): rsc(%x), app(%d)", g_signalModeManagerEventNames[id], rsc, app);
+-				if (app == _appID)
+-				{
+-					if (rsc & RSC_DISPLAY)
+-					{
+-						graphics_window_show(_graphics, graphic_window_mode_hide);
+-						SendDBusModeManagerReleaseResourceDone(RSC_DISPLAY);
+-					}
+-
+-					if (rsc & RSC_AUDIO)
+-					{
+-						//release audio resource
+-					}
+-				}
++				dbg(lvl_debug, "mode manager signal(%s): rsc(%08x), app(%d)", g_signalModeManagerEventNames[id], rsc, app);
++				mode_manager_release_resource(rsc, app);
+ 			}
+ 			else
+ 			{
+@@ -402,58 +459,12 @@ static void ModeManagerSignalDBusProcess(unsigned int id, DBusMessage *message)
+ 									DBUS_TYPE_INT32, &app, DBUS_TYPE_INVALID))
+ 			{
+ 				dbg(lvl_debug, "mode manager signal(%s): mode(%s), app(%d)", g_signalModeManagerEventNames[id], mode, app);
+-
+-				if (strncmp(mode, MODE_MANAGER_VIEW, strlen(MODE_MANAGER_VIEW)) == 0)
+-				{
+-					dbg(lvl_debug, "change mode to %s", MODE_MANAGER_VIEW);
+-
+-					if (app == _appID)
+-					{
+-						if (_graphics != NULL)
+-						{
+-							graphics_window_show(_graphics, graphic_window_mode_full_screen);
+-						}
+-						else
+-						{
+-							dbg(lvl_error, "grapchis not initialized");
+-						}
+-						SendDBusModeManagerChangeMode(MODE_MANAGER_NAVI_ALARM, _appID);
+-					}
+-				}
+-				else if (strncmp(mode, MODE_MANAGER_HOME, strlen(MODE_MANAGER_HOME)) == 0)
+-				{
+-					dbg(lvl_debug, "change mode to %s", MODE_MANAGER_HOME);
+-					if (app == 0)
+-					{
+-						if (_graphics != NULL)
+-						{
+-							graphics_window_show(_graphics, graphic_window_mode_normal);
+-						}
+-						else
+-						{
+-							dbg(lvl_error, "grapchis not initialized");
+-						}
+-						SendDBusModeManagerChangeMode(MODE_MANAGER_NAVI_ALARM_BG, _appID);
+-					}
+-				}
+-				else if (strncmp(mode, MODE_MANAGER_NAVI_ALARM, strlen(MODE_MANAGER_NAVI_ALARM)) == 0)
+-				{
+-					dbg(lvl_debug, "change mode to %s", MODE_MANAGER_NAVI_ALARM);
+-				}
+-				else if (strncmp(mode, MODE_MANAGER_NAVI_ALARM_BG, strlen(MODE_MANAGER_NAVI_ALARM_BG)) == 0)
+-				{
+-					dbg(lvl_debug, "change mode to %s", MODE_MANAGER_NAVI_ALARM_BG);
+-				}
+-				else
+-				{
+-					dbg(lvl_warning, "not support mode(%s)", mode);
+-				}
++				mode_manager_change_mode(mode, app);
+ 			}
+ 			else
+ 			{
+ 				dbg(lvl_error, "GetArgumentFromDBusMessage failed");
+ 			}
+-
+ 			break;
+ 		default:
+ 			break;
+-- 
+1.9.3
+

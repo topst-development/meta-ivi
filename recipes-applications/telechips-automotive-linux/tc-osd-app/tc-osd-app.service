@@ -1,0 +1,15 @@
+[Unit]
+Description=micom receiver gui process
+ConditionPathExists=/var/run/user/root/wayland-0
+Requires=dbus.socket
+After=dbus.socket AudioManager.service
+
+[Service]
+Type=simple
+PIDFile=/var/run/tc-osd-app.pid
+Environment=LANG=ko_KR.EUC-KR
+EnvironmentFile=/etc/sysconfig/weston
+ExecStart=/usr/bin/OSDApp
+
+[Install]
+WantedBy=multi-user.target

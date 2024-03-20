@@ -1,0 +1,52 @@
+From 68aa86316be94aa19507416ebe48f35d8f516e1b Mon Sep 17 00:00:00 2001
+From: Wily Taekhyun Shin <thshin@telechips.com>
+Date: Tue, 23 Mar 2021 12:50:02 +0000
+Subject: [PATCH] Remove no need options for fix error logs
+
+---
+ navit/navit_shipped.xml                | 4 ++++
+ navit/speech/qt5_espeak/qt5_espeak.cpp | 2 +-
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/navit/navit_shipped.xml b/navit/navit_shipped.xml
+index d263af522..e7718bb24 100644
+--- a/navit/navit_shipped.xml
++++ b/navit/navit_shipped.xml
+@@ -187,7 +187,9 @@ Waypoint</text></img>
+ 		<osd enabled="yes" type="button" x="20" y="-68" command="zoom_out()" src="zoom_out.png"/>
+ 
+ 		<!-- Traffic -->
++		<!--
+ 		<traffic type="null"/>
++		-->
+ 
+ 		<!-- Vehicle with GPS enabled for gpsd on unix -->
+ 		<vehicle name="Local GPS" profilename="car" enabled="yes" active="1" source="gpsd://localhost" gpsd_query="w+xj">
+@@ -412,9 +414,11 @@ Waypoint</text></img>
+ 		</mapset>
+ 
+ 		<!-- If you dont want to use the sample map, either set enabled="no" in the next line or remove the xml file from the maps directory -->
++		<!--
+ 		<mapset enabled="no">
+ 			<xi:include href="$NAVIT_SHAREDIR/maps/*.xml"/>
+ 		</mapset>
++		-->
+ 
+ 		<!-- Mapset template for openstreetmaps -->
+ 		<mapset enabled="yes">
+diff --git a/navit/speech/qt5_espeak/qt5_espeak.cpp b/navit/speech/qt5_espeak/qt5_espeak.cpp
+index 0564ead22..ae523ce3a 100755
+--- a/navit/speech/qt5_espeak/qt5_espeak.cpp
++++ b/navit/speech/qt5_espeak/qt5_espeak.cpp
+@@ -103,7 +103,7 @@ static bool qt5_espeak_init_espeak(struct speech_priv* sr, struct attr** attrs)
+         dbg(lvl_error, "Init failed %d", sr->sample_rate);
+         return 1;
+     }
+-    dbg(lvl_error, "Sample rate is %d", sr->sample_rate);
++    dbg(lvl_debug, "Sample rate is %d", sr->sample_rate);
+ 
+ 	espeak_env = getenv("ESPEAK_RATE");
+ 	if (espeak_env != NULL)
+-- 
+2.24.1
+

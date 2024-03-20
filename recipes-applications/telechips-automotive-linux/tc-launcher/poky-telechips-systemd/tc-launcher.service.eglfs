@@ -1,0 +1,17 @@
+[Unit]
+Description=launcher gui process
+Requires=dbus.socket
+After=dbus.socket
+
+[Service]
+Type=notify
+PIDFile=/var/run/tc-launcher.pid
+Environment=LANG=ko_KR.EUC-KR
+Environment=QT_QPA_EGLFS_PHYSICAL_WIDTH=LCD_WIDTH
+Environment=QT_QPA_EGLFS_PHYSICAL_HEIGHT=LCD_HEIGHT
+Environment=QT_QPA_EGLFS_INTEGRATION=eglfs_pvr
+Environment=QT_QPA_EGLFS_FORCE888=1
+ExecStart=/usr/bin/Launcher --no-daemon --mouse --keyboard=/dev/input/keyboard1
+
+[Install]
+WantedBy=multi-user.target

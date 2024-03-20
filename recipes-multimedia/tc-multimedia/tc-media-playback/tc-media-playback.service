@@ -1,0 +1,16 @@
+[Unit]
+Description=telechips media playback daemon
+Wants=pulseaudio.service
+After=pulseaudio.service
+
+[Service]
+Type=notify
+PIDFile=/var/run/TCMediaPlayback.pid
+Environment=LANG=ko_KR.EUC-KR
+Environment=GST_ID3_TAG_ENCODING=EUC-KR
+ExecStart=/usr/bin/TCMediaPlayback --no-daemon
+RestartSec=5sec
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
